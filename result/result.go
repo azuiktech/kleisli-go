@@ -78,7 +78,11 @@ func (r Result[T]) Expect(msg string) T {
 	return r.val
 }
 
-// OrElse returns the success value, or fallback on failure.
+// OrElse returns the success value, or fallback on failure. fallback is
+// evaluated by the caller before this is called, regardless of branch —
+// Go has no way to defer argument evaluation — the same gotcha as Rust's
+// unwrap_or and Java's Optional.orElse. Use OrElseGet if fallback is
+// expensive to compute.
 func (r Result[T]) OrElse(fallback T) T {
 	if !r.ok {
 		return fallback
