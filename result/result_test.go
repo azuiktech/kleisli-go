@@ -1,6 +1,7 @@
 package result
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -170,5 +171,73 @@ func TestSuccessesAndFailures(t *testing.T) {
 	failures := Failures(results)
 	if len(failures) != 2 || !errors.Is(failures[0], errBoom) {
 		t.Errorf("Failures() = %v, want 2 errors starting with %v", failures, errBoom)
+	}
+}
+
+func TestMarshalJSON_WireShape(t *testing.T) {
+	if got, err := json.Marshal(OK(42)); err != nil || string(got) != `{"ok":42}` {
+		t.Errorf("Marshal(OK(42)) = %s, %v, want {\"ok\":42}, nil", got, err)
+	}
+	if got, err := json.Marshal(Err[int](errBoom)); err != nil || string(got) != `{"err":"boom"}` {
+		t.Errorf("Marshal(Err(boom)) = %s, %v, want {\"err\":\"boom\"}, nil", got, err)
+	}
+}
+
+func TestJSON_RoundTrip_OK(t *testing.T) {
+	data, err := json.Marshal(OK("hello"))
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	var got Result[string]
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if !got.IsOK() || got.Val() != "hello" {
+		t.Errorf("round-tripped = IsOK=%v Val=%q, want IsOK=true Val=%q", got.IsOK(), got.Val(), "hello")
+	}
+}
+
+func TestJSON_RoundTrip_Err(t *testing.T) {
+	data, err := json.Marshal(Err[string](errBoom))
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	var got Result[string]
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if !got.IsErr() || got.Error().Error() != "boom" {
+		t.Errorf("round-tripped = IsErr=%v Error=%v, want IsErr=true Error=boom", got.IsErr(), got.Error())
+	}
+}
+
+// TestJSON_RoundTrip_NilPointerSuccess is the case the whole design exists
+// for: a success value that is itself a nil pointer (e.g. "no match found")
+// must stay distinguishable from a failed lookup after round-tripping.
+func TestJSON_RoundTrip_NilPointerSuccess(t *testing.T) {
+	var noMatch *int
+	data, err := json.Marshal(OK(noMatch))
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if string(data) != `{"ok":null}` {
+		t.Errorf("Marshal(OK(nil *int)) = %s, want {\"ok\":null}", data)
+	}
+
+	var got Result[*int]
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if !got.IsOK() || got.Val() != nil {
+		t.Errorf("round-tripped = IsOK=%v Val=%v, want IsOK=true Val=nil", got.IsOK(), got.Val())
+	}
+}
+
+func TestUnmarshalJSON_MalformedInput(t *testing.T) {
+	var got Result[int]
+	if err := json.Unmarshal([]byte(`{}`), &got); err == nil {
+		t.Error("Unmarshal({}) error = nil, want an error for missing ok/err key")
 	}
 }
