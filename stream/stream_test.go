@@ -5,6 +5,37 @@ import (
 	"testing"
 )
 
+func TestLast(t *testing.T) {
+	got, ok := Of([]int{1, 2, 3, 2, 1}).Last(func(n int) bool { return n == 2 })
+	if !ok || got != 2 {
+		t.Errorf("Last() = (%d, %v), want (2, true)", got, ok)
+	}
+
+	_, ok = Of([]int{1, 2, 3}).Last(func(n int) bool { return n == 99 })
+	if ok {
+		t.Error("Last() found a match that doesn't exist")
+	}
+}
+
+func TestLast_ShortCircuitsFromTheEnd(t *testing.T) {
+	calls := 0
+	items := make([]int, 100)
+	for i := range items {
+		items[i] = i
+	}
+
+	got, ok := Of(items).Last(func(n int) bool {
+		calls++
+		return n == 99 // the very last element
+	})
+	if !ok || got != 99 {
+		t.Fatalf("Last() = (%d, %v), want (99, true)", got, ok)
+	}
+	if calls != 1 {
+		t.Errorf("fn called %d times, want 1 (Last should scan backward and stop immediately)", calls)
+	}
+}
+
 func TestGather_EarlyTerminationAndFinish(t *testing.T) {
 	// A Gatherer that stops after 3 items and flushes a sentinel via Finish
 	// — exercises both the cont=false short-circuit and the Finish hook.
@@ -175,6 +206,51 @@ func TestSortBy(t *testing.T) {
 	// original slice must be untouched.
 	if items[0].Name != "c" {
 		t.Errorf("SortBy mutated the source slice: %+v", items)
+	}
+}
+
+func TestSortBy_StableOnEqualKeys(t *testing.T) {
+	type item struct {
+		Key   int
+		Label string // distinguishes otherwise-equal-key elements
+	}
+	items := []item{{1, "a"}, {2, "x"}, {1, "b"}, {2, "y"}, {1, "c"}}
+
+	got := Of(items).SortBy(func(i item) int { return i.Key }).Collect()
+	want := []item{{1, "a"}, {1, "b"}, {1, "c"}, {2, "x"}, {2, "y"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("SortBy() = %+v, want %+v (equal-key elements must keep original relative order)", got, want)
+	}
+}
+
+func TestSortByCached_MatchesSortByAndCallsFnOnceEach(t *testing.T) {
+	type item struct {
+		Key   int
+		Label string
+	}
+	items := []item{{3, "c"}, {1, "a"}, {2, "x"}, {1, "b"}}
+
+	calls := 0
+	keyFn := func(i item) int {
+		calls++
+		return i.Key
+	}
+
+	got := Of(items).SortByCached(keyFn).Collect()
+	want := Of(items).SortBy(func(i item) int { return i.Key }).Collect()
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("SortByCached() = %+v, want same result as SortBy() = %+v", got, want)
+	}
+	if calls != len(items) {
+		t.Errorf("key fn called %d times, want exactly %d (once per element)", calls, len(items))
+	}
+}
+
+func TestSortByDescCached(t *testing.T) {
+	got := Of([]int{3, 1, 2}).SortByDescCached(func(n int) int { return n }).Collect()
+	want := []int{3, 2, 1}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("SortByDescCached() = %v, want %v", got, want)
 	}
 }
 

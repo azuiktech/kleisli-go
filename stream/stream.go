@@ -21,7 +21,9 @@ type Stream[T any] struct {
 	items []T
 }
 
-// Of wraps a slice in a Stream. The original slice is not copied.
+// Of wraps a slice in a Stream. The original slice is not copied — Stream
+// shares its backing array with the caller, so mutating the source slice
+// after calling Of affects the Stream too.
 func Of[T any](items []T) Stream[T] { return Stream[T]{items: items} }
 
 // Empty returns a Stream with no elements.
@@ -77,18 +79,18 @@ func (s Stream[T]) First(fn func(T) bool) (T, bool) {
 	return zero, false
 }
 
-// Last returns the last element satisfying fn, or (zero, false).
+// Last returns the last element satisfying fn, or (zero, false). Scans
+// backward so a match near the end is found without touching the rest of
+// the slice — O(1) best case, matching Rust's DoubleEndedIterator::rfind
+// rather than a forward scan that must always reach the end.
 func (s Stream[T]) Last(fn func(T) bool) (T, bool) {
-	var (
-		found T
-		ok    bool
-	)
-	for _, v := range s.items {
-		if fn(v) {
-			found, ok = v, true
+	for i := len(s.items) - 1; i >= 0; i-- {
+		if fn(s.items[i]) {
+			return s.items[i], true
 		}
 	}
-	return found, ok
+	var zero T
+	return zero, false
 }
 
 // Take returns a Stream containing at most n leading elements.
@@ -374,7 +376,11 @@ func WindowFixed[T any](n int) Gatherer[T, []T, []T] {
 
 // WindowSliding produces every overlapping window of size n — fewer than n
 // elements at the very start are not emitted. Java 24's
-// Gatherers.windowSliding.
+// Gatherers.windowSliding. Each window is a defensive copy, not a
+// zero-copy aliased subslice the way Rust's slice::windows works — a
+// deliberate safety-over-performance choice (mutating one window can
+// never corrupt its neighbors or the source). Total copying is O(n ×
+// size), not O(n) — revisit only if profiling shows it actually matters.
 func WindowSliding[T any](n int) Gatherer[T, []T, []T] {
 	return Gatherer[T, []T, []T]{
 		Init: func() []T { return make([]T, 0, n) },
@@ -398,20 +404,62 @@ func WindowSliding[T any](n int) Gatherer[T, []T, []T] {
 // These don't fit Gather's shape (one Stream in, process item-by-item,
 // one Stream out) and stay hand-implemented, same tier as Filter/Map.
 
-// SortBy returns a Stream sorted ascending by the key fn extracts.
-// Sorting needs the whole Stream before it can emit anything, unlike
-// every Gatherer above which processes one item at a time.
+// SortBy returns a Stream sorted ascending by the key fn extracts. Stable
+// — equal-key elements keep their original relative order, matching
+// Rust's sort_by_key and Java's Stream.sorted (both documented stable);
+// slices.SortFunc alone is not, so this uses SortStableFunc. Calls fn once
+// per comparison (O(n log n) calls total) — use SortByCached if fn is
+// non-trivial. Sorting needs the whole Stream before it can emit anything,
+// unlike every Gatherer above which processes one item at a time.
 func (s Stream[T]) SortBy[K cmp.Ordered](fn func(T) K) Stream[T] {
 	out := slices.Clone(s.items)
-	slices.SortFunc(out, func(a, b T) int { return cmp.Compare(fn(a), fn(b)) })
+	slices.SortStableFunc(out, func(a, b T) int { return cmp.Compare(fn(a), fn(b)) })
 	return Stream[T]{items: out}
 }
 
 // SortByDesc is SortBy in descending order.
 func (s Stream[T]) SortByDesc[K cmp.Ordered](fn func(T) K) Stream[T] {
 	out := slices.Clone(s.items)
-	slices.SortFunc(out, func(a, b T) int { return cmp.Compare(fn(b), fn(a)) })
+	slices.SortStableFunc(out, func(a, b T) int { return cmp.Compare(fn(b), fn(a)) })
 	return Stream[T]{items: out}
+}
+
+// keyed pairs an extracted sort key with its source item — SortByCached's
+// intermediate representation, so fn runs exactly once per element instead
+// of once per comparison.
+type keyed[T, K any] struct {
+	key  K
+	item T
+}
+
+// sortByCached is SortBy's shared engine: extract every key once, sort the
+// (key, item) pairs by cmpFn, unwrap. Both SortByCached and
+// SortByDescCached are this with the comparison direction flipped.
+func sortByCached[T any, K cmp.Ordered](items []T, fn func(T) K, cmpFn func(a, b K) int) []T {
+	pairs := make([]keyed[T, K], len(items))
+	for i, v := range items {
+		pairs[i] = keyed[T, K]{key: fn(v), item: v}
+	}
+	slices.SortStableFunc(pairs, func(a, b keyed[T, K]) int { return cmpFn(a.key, b.key) })
+	out := make([]T, len(pairs))
+	for i, p := range pairs {
+		out[i] = p.item
+	}
+	return out
+}
+
+// SortByCached is SortBy, but extracts each key exactly once (O(n) calls
+// to fn) instead of once per comparison (O(n log n)) — Rust's
+// sort_by_cached_key. Prefer this over SortBy when fn is non-trivial (a
+// computed property, not a field access); SortBy stays cheaper for
+// trivial key functions since it skips the intermediate key slice.
+func (s Stream[T]) SortByCached[K cmp.Ordered](fn func(T) K) Stream[T] {
+	return Stream[T]{items: sortByCached(s.items, fn, func(a, b K) int { return cmp.Compare(a, b) })}
+}
+
+// SortByDescCached is SortByCached in descending order.
+func (s Stream[T]) SortByDescCached[K cmp.Ordered](fn func(T) K) Stream[T] {
+	return Stream[T]{items: sortByCached(s.items, fn, func(a, b K) int { return cmp.Compare(b, a) })}
 }
 
 // Partition splits into two Streams by fn — Java's
