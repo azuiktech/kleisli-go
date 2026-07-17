@@ -12,6 +12,8 @@
 //	    Unwrap()
 package result
 
+import "fmt"
+
 // Result holds either a success value of type T or an error.
 // Use OK, Err, or From to construct; never use the zero value directly.
 type Result[T any] struct {
@@ -64,6 +66,18 @@ func (r Result[T]) MustGet() T {
 	return r.val
 }
 
+// Expect returns the success value or panics with msg wrapping the
+// underlying error — the friendly alternative to MustGet for
+// init/construction code, where a bare stack trace on the raw error isn't
+// enough context to diagnose from. Prefer this over chaining
+// MapErr(wrapErr(msg)).MustGet() for the same effect.
+func (r Result[T]) Expect(msg string) T {
+	if !r.ok {
+		panic(fmt.Errorf("%s: %w", msg, r.err))
+	}
+	return r.val
+}
+
 // OrElse returns the success value, or fallback on failure.
 func (r Result[T]) OrElse(fallback T) T {
 	if !r.ok {
@@ -85,6 +99,17 @@ func (r Result[T]) OrElseGet(fn func(error) T) T {
 func (r Result[T]) MapErr(fn func(error) error) Result[T] {
 	if !r.ok {
 		return Err[T](fn(r.err))
+	}
+	return r
+}
+
+// Recover turns a failure into a fallback Result via fn — the fallback may
+// itself fail. A success Result passes through unchanged. Use for retry
+// paths or default-value fallbacks that are themselves fallible; for a
+// fallback that can't fail, use OrElse/OrElseGet instead.
+func (r Result[T]) Recover(fn func(error) Result[T]) Result[T] {
+	if !r.ok {
+		return fn(r.err)
 	}
 	return r
 }
@@ -131,4 +156,70 @@ func (r Result[T]) Then[U any](fn func(T) (U, error)) Result[U] {
 		return Err[U](r.err)
 	}
 	return From(fn(r.val))
+}
+
+// Fold collapses the Result into a single value of type U by handling
+// both branches — onOK for success, onErr for failure. Equivalent to
+// Haskell's either or Rust's map_or_else, and shorter than the equivalent
+// Map(onOK).OrElseGet(onErr) two-step.
+func (r Result[T]) Fold[U any](onOK func(T) U, onErr func(error) U) U {
+	if !r.ok {
+		return onErr(r.err)
+	}
+	return onOK(r.val)
+}
+
+// Zip2 combines two independent Results into one via fn. Both must
+// succeed; the first failure (ra, then rb) short-circuits.
+func Zip2[A, B, U any](ra Result[A], rb Result[B], fn func(A, B) U) Result[U] {
+	return ra.FlatMap(func(a A) Result[U] {
+		return rb.Map(func(b B) U { return fn(a, b) })
+	})
+}
+
+// Zip3 combines three independent Results into one via fn. All three must
+// succeed; the first failure (ra, then rb, then rc) short-circuits.
+func Zip3[A, B, C, U any](ra Result[A], rb Result[B], rc Result[C], fn func(A, B, C) U) Result[U] {
+	return ra.FlatMap(func(a A) Result[U] {
+		return rb.FlatMap(func(b B) Result[U] {
+			return rc.Map(func(c C) U { return fn(a, b, c) })
+		})
+	})
+}
+
+// Sequence turns a slice of Results into a Result of a slice, fail-fast on
+// the first error encountered — Haskell's sequence/traverse for []Result.
+func Sequence[T any](results []Result[T]) Result[[]T] {
+	vals := make([]T, len(results))
+	for i, r := range results {
+		if !r.ok {
+			return Err[[]T](r.err)
+		}
+		vals[i] = r.val
+	}
+	return OK(vals)
+}
+
+// Successes returns every success value, dropping errors — Haskell's
+// rights. Unlike Sequence, this never fails: a Result slice with no
+// successes returns an empty slice.
+func Successes[T any](results []Result[T]) []T {
+	vals := make([]T, 0, len(results))
+	for _, r := range results {
+		if r.ok {
+			vals = append(vals, r.val)
+		}
+	}
+	return vals
+}
+
+// Failures returns every error, dropping success values — Haskell's lefts.
+func Failures[T any](results []Result[T]) []error {
+	errs := make([]error, 0, len(results))
+	for _, r := range results {
+		if !r.ok {
+			errs = append(errs, r.err)
+		}
+	}
+	return errs
 }
