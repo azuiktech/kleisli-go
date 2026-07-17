@@ -12,18 +12,24 @@
 //	    Unwrap()
 package result
 
-import "fmt"
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+)
 
-// Result holds either a success value of type T or an error.
+// Result holds either a success value of type T or an error. The two are
+// mutually exclusive by construction (Err refuses a nil error, OK never sets
+// one), so err's nilness alone is the discriminant — there's no separate
+// tag to keep in sync.
 // Use OK, Err, or From to construct; never use the zero value directly.
 type Result[T any] struct {
 	val T
 	err error
-	ok  bool
 }
 
 // OK wraps a success value.
-func OK[T any](val T) Result[T] { return Result[T]{val: val, ok: true} }
+func OK[T any](val T) Result[T] { return Result[T]{val: val} }
 
 // Err wraps a failure. Panics if err is nil — use OK for success.
 func Err[T any](err error) Result[T] {
@@ -41,11 +47,69 @@ func From[T any](val T, err error) Result[T] {
 	return OK(val)
 }
 
+// wireResult is Result[T]'s JSON wire shape — Rust serde's externally
+// tagged representation for Result<T, E> ({"Ok": T} / {"Err": E}), adapted
+// to Go's lowercase field convention. Exactly one key is ever present: the
+// key itself is the discriminant, mirroring Result's own invariant that
+// exactly one of val/err is ever active.
+//
+// Ok is *T, not T, so that a success value which is itself a nil pointer
+// (e.g. Result[*Invoice] holding "no match") still round-trips as
+// {"ok":null} — distinct from {"err":"..."} — rather than being silently
+// omitted by omitempty.
+type wireResult[T any] struct {
+	Ok  *T      `json:"ok,omitempty"`
+	Err *string `json:"err,omitempty"`
+}
+
+// MarshalJSON writes the Result as {"ok":<val>} or {"err":"<message>"}.
+func (r Result[T]) MarshalJSON() ([]byte, error) {
+	if r.err != nil {
+		msg := r.err.Error()
+		return json.Marshal(wireResult[T]{Err: &msg})
+	}
+	return json.Marshal(wireResult[T]{Ok: &r.val})
+}
+
+// UnmarshalJSON reads back the shape MarshalJSON writes. The reconstructed
+// error is a plain errors.New(message) — the original error's identity and
+// wrapping chain don't survive the round-trip, only its message text.
+//
+// This can't reuse wireResult the way MarshalJSON does: encoding/json
+// collapses a JSON null into a nil pointer at whatever level it's
+// unmarshaling into, so a *T field can't tell "ok present, value null"
+// (a real success holding a nil T, e.g. Result[*Invoice]'s "no match")
+// apart from "ok absent". Unmarshaling into a raw key map first, and
+// checking key presence directly, avoids that collapse.
+func (r *Result[T]) UnmarshalJSON(data []byte) error {
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(data, &keys); err != nil {
+		return err
+	}
+	if raw, present := keys["err"]; present {
+		var msg string
+		if err := json.Unmarshal(raw, &msg); err != nil {
+			return err
+		}
+		*r = Err[T](errors.New(msg))
+		return nil
+	}
+	if raw, present := keys["ok"]; present {
+		var val T
+		if err := json.Unmarshal(raw, &val); err != nil {
+			return err
+		}
+		*r = OK(val)
+		return nil
+	}
+	return fmt.Errorf(`result: JSON has neither "ok" nor "err" key`)
+}
+
 // IsOK reports whether the Result holds a success value.
-func (r Result[T]) IsOK() bool { return r.ok }
+func (r Result[T]) IsOK() bool { return r.err == nil }
 
 // IsErr reports whether the Result holds an error.
-func (r Result[T]) IsErr() bool { return !r.ok }
+func (r Result[T]) IsErr() bool { return r.err != nil }
 
 // Val returns the success value, or the zero value of T on failure.
 func (r Result[T]) Val() T { return r.val }
@@ -60,7 +124,7 @@ func (r Result[T]) Unwrap() (T, error) { return r.val, r.err }
 // MustGet returns the success value or panics with the error.
 // Intended for tests and initialisation code only.
 func (r Result[T]) MustGet() T {
-	if !r.ok {
+	if r.err != nil {
 		panic(r.err)
 	}
 	return r.val
@@ -72,7 +136,7 @@ func (r Result[T]) MustGet() T {
 // enough context to diagnose from. Prefer this over chaining
 // MapErr(wrapErr(msg)).MustGet() for the same effect.
 func (r Result[T]) Expect(msg string) T {
-	if !r.ok {
+	if r.err != nil {
 		panic(fmt.Errorf("%s: %w", msg, r.err))
 	}
 	return r.val
@@ -84,7 +148,7 @@ func (r Result[T]) Expect(msg string) T {
 // unwrap_or and Java's Optional.orElse. Use OrElseGet if fallback is
 // expensive to compute.
 func (r Result[T]) OrElse(fallback T) T {
-	if !r.ok {
+	if r.err != nil {
 		return fallback
 	}
 	return r.val
@@ -92,7 +156,7 @@ func (r Result[T]) OrElse(fallback T) T {
 
 // OrElseGet calls fn with the error to produce a fallback value on failure.
 func (r Result[T]) OrElseGet(fn func(error) T) T {
-	if !r.ok {
+	if r.err != nil {
 		return fn(r.err)
 	}
 	return r.val
@@ -101,7 +165,7 @@ func (r Result[T]) OrElseGet(fn func(error) T) T {
 // MapErr transforms the error, leaving a success Result unchanged.
 // Use to annotate errors with context before they surface to callers.
 func (r Result[T]) MapErr(fn func(error) error) Result[T] {
-	if !r.ok {
+	if r.err != nil {
 		return Err[T](fn(r.err))
 	}
 	return r
@@ -112,7 +176,7 @@ func (r Result[T]) MapErr(fn func(error) error) Result[T] {
 // paths or default-value fallbacks that are themselves fallible; for a
 // fallback that can't fail, use OrElse/OrElseGet instead.
 func (r Result[T]) Recover(fn func(error) Result[T]) Result[T] {
-	if !r.ok {
+	if r.err != nil {
 		return fn(r.err)
 	}
 	return r
@@ -121,7 +185,7 @@ func (r Result[T]) Recover(fn func(error) Result[T]) Result[T] {
 // Tap calls fn on the success value for side effects (e.g. metrics, tracing)
 // and passes the Result through unchanged.
 func (r Result[T]) Tap(fn func(T)) Result[T] {
-	if r.ok {
+	if r.err == nil {
 		fn(r.val)
 	}
 	return r
@@ -130,7 +194,7 @@ func (r Result[T]) Tap(fn func(T)) Result[T] {
 // TapErr calls fn on the error for side effects (e.g. logging)
 // and passes the Result through unchanged.
 func (r Result[T]) TapErr(fn func(error)) Result[T] {
-	if !r.ok {
+	if r.err != nil {
 		fn(r.err)
 	}
 	return r
@@ -139,7 +203,7 @@ func (r Result[T]) TapErr(fn func(error)) Result[T] {
 // Map transforms the success value into a different type.
 // Errors propagate unchanged.
 func (r Result[T]) Map[U any](fn func(T) U) Result[U] {
-	if !r.ok {
+	if r.err != nil {
 		return Err[U](r.err)
 	}
 	return OK(fn(r.val))
@@ -148,7 +212,7 @@ func (r Result[T]) Map[U any](fn func(T) U) Result[U] {
 // FlatMap chains a Result-returning operation.
 // Errors short-circuit: a failed Result never calls fn.
 func (r Result[T]) FlatMap[U any](fn func(T) Result[U]) Result[U] {
-	if !r.ok {
+	if r.err != nil {
 		return Err[U](r.err)
 	}
 	return fn(r.val)
@@ -156,7 +220,7 @@ func (r Result[T]) FlatMap[U any](fn func(T) Result[U]) Result[U] {
 
 // Then chains a Go-idiomatic (U, error)-returning function.
 func (r Result[T]) Then[U any](fn func(T) (U, error)) Result[U] {
-	if !r.ok {
+	if r.err != nil {
 		return Err[U](r.err)
 	}
 	return From(fn(r.val))
@@ -167,7 +231,7 @@ func (r Result[T]) Then[U any](fn func(T) (U, error)) Result[U] {
 // Haskell's either or Rust's map_or_else, and shorter than the equivalent
 // Map(onOK).OrElseGet(onErr) two-step.
 func (r Result[T]) Fold[U any](onOK func(T) U, onErr func(error) U) U {
-	if !r.ok {
+	if r.err != nil {
 		return onErr(r.err)
 	}
 	return onOK(r.val)
@@ -196,7 +260,7 @@ func Zip3[A, B, C, U any](ra Result[A], rb Result[B], rc Result[C], fn func(A, B
 func Sequence[T any](results []Result[T]) Result[[]T] {
 	vals := make([]T, len(results))
 	for i, r := range results {
-		if !r.ok {
+		if r.err != nil {
 			return Err[[]T](r.err)
 		}
 		vals[i] = r.val
@@ -210,7 +274,7 @@ func Sequence[T any](results []Result[T]) Result[[]T] {
 func Successes[T any](results []Result[T]) []T {
 	vals := make([]T, 0, len(results))
 	for _, r := range results {
-		if r.ok {
+		if r.err == nil {
 			vals = append(vals, r.val)
 		}
 	}
@@ -221,7 +285,7 @@ func Successes[T any](results []Result[T]) []T {
 func Failures[T any](results []Result[T]) []error {
 	errs := make([]error, 0, len(results))
 	for _, r := range results {
-		if !r.ok {
+		if r.err != nil {
 			errs = append(errs, r.err)
 		}
 	}
