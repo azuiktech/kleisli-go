@@ -264,6 +264,22 @@ func TestPartition(t *testing.T) {
 	}
 }
 
+func TestOfMap(t *testing.T) {
+	m := map[string]int{"a": 1, "b": 2, "c": 3}
+	got := OfMap(m).SortBy(func(p Pair[string, int]) string { return p.First }).Collect()
+	want := []Pair[string, int]{{"a", 1}, {"b", 2}, {"c", 3}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("OfMap() = %+v, want %+v", got, want)
+	}
+}
+
+func TestOfMap_Empty(t *testing.T) {
+	got := OfMap(map[string]int{}).Collect()
+	if len(got) != 0 {
+		t.Errorf("OfMap(empty map) = %+v, want empty", got)
+	}
+}
+
 func TestZip(t *testing.T) {
 	tests := []struct {
 		name string

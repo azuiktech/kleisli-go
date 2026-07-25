@@ -29,6 +29,17 @@ func Of[T any](items []T) Stream[T] { return Stream[T]{items: items} }
 // Empty returns a Stream with no elements.
 func Empty[T any]() Stream[T] { return Stream[T]{} }
 
+// OfMap wraps a map's entries as a Stream of Pair — map iteration order is
+// randomized by Go itself, so callers needing a deterministic order should
+// follow with SortBy/SortByCached on the key.
+func OfMap[K comparable, V any](m map[K]V) Stream[Pair[K, V]] {
+	pairs := make([]Pair[K, V], 0, len(m))
+	for k, v := range m {
+		pairs = append(pairs, Pair[K, V]{First: k, Second: v})
+	}
+	return Stream[Pair[K, V]]{items: pairs}
+}
+
 // Filter returns a Stream containing only elements for which fn returns true.
 func (s Stream[T]) Filter(fn func(T) bool) Stream[T] {
 	out := make([]T, 0, len(s.items))
