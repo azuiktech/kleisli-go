@@ -1,5 +1,15 @@
-// Package stream provides a generic Stream[T] type for functional pipeline
-// operations over in-memory slices.
+// Package stream provides Stream[T], a generic type for eager pipeline
+// operations over in-memory slices, and Seq[T], its lazy, pull-based
+// counterpart wrapping the standard library's own iter.Seq[T].
+//
+// The two share one implementation for every operation that appears on
+// both (Filter, Map, TakeWhile, ...) — Stream just runs the same engine
+// via slices.Values then collects immediately. Stream additionally
+// offers operations that need to see the whole sequence (Reverse, the
+// SortBy family, GroupBy, ToMap, Partition, Last, Len) — sound there
+// specifically because a slice is always finite and already in memory;
+// absent from Seq's method set entirely, since an arbitrary Seq might
+// not be finite.
 //
 // Map, FlatMap, Reduce, GroupBy, and ToMap use Go 1.27 generic methods,
 // enabling type-changing transformations via method chaining without free
@@ -15,8 +25,10 @@ import (
 	"slices"
 )
 
-// Stream wraps a slice for lazy-style pipeline operations.
-// All operations are eager (evaluated immediately).
+// Stream wraps a slice for pipeline operations. Every operation it
+// shares with Seq is evaluated the same way Seq evaluates it (see
+// package doc); Stream's own additional operations (Reverse, sorting,
+// grouping, ...) are eager, since they need the whole slice anyway.
 type Stream[T any] struct {
 	items []T
 }
@@ -25,6 +37,9 @@ type Stream[T any] struct {
 // shares its backing array with the caller, so mutating the source slice
 // after calling Of affects the Stream too.
 func Of[T any](items []T) Stream[T] { return Stream[T]{items: items} }
+
+// FromSlice is Of, named to read as Seq's own FromSeq's counterpart.
+func FromSlice[T any](items []T) Stream[T] { return Of(items) }
 
 // Empty returns a Stream with no elements.
 func Empty[T any]() Stream[T] { return Stream[T]{} }
@@ -42,13 +57,7 @@ func OfMap[K comparable, V any](m map[K]V) Stream[Pair[K, V]] {
 
 // Filter returns a Stream containing only elements for which fn returns true.
 func (s Stream[T]) Filter(fn func(T) bool) Stream[T] {
-	out := make([]T, 0, len(s.items))
-	for _, v := range s.items {
-		if fn(v) {
-			out = append(out, v)
-		}
-	}
-	return Stream[T]{items: out}
+	return Stream[T]{items: slices.Collect(filterSeq(slices.Values(s.items), fn))}
 }
 
 // Each calls fn on every element. Returns s unchanged for chaining.
@@ -120,11 +129,15 @@ func (s Stream[T]) Skip(n int) Stream[T] {
 	return Stream[T]{items: s.items[n:]}
 }
 
-// Reverse returns a Stream with elements in reversed order.
+// Reverse returns a Stream with elements in reversed order. Sound only
+// here, not on Seq: reversing needs to know the last element before it
+// can produce the first one, which slices.Backward gets for free (a
+// slice already supports backward iteration) but an arbitrary Seq
+// can't promise at all.
 func (s Stream[T]) Reverse() Stream[T] {
-	out := make([]T, len(s.items))
-	for i, v := range s.items {
-		out[len(s.items)-1-i] = v
+	out := make([]T, 0, len(s.items))
+	for _, v := range slices.Backward(s.items) {
+		out = append(out, v)
 	}
 	return Stream[T]{items: out}
 }
@@ -141,22 +154,14 @@ func (s Stream[T]) Collect() []T { return s.items }
 //
 // Requires Go 1.27 (generic method type parameter).
 func (s Stream[T]) Map[U any](fn func(T) U) Stream[U] {
-	out := make([]U, len(s.items))
-	for i, v := range s.items {
-		out[i] = fn(v)
-	}
-	return Stream[U]{items: out}
+	return Stream[U]{items: slices.Collect(mapSeq(slices.Values(s.items), fn))}
 }
 
 // FlatMap maps each element to a slice of U and concatenates the results.
 //
 // Requires Go 1.27 (generic method type parameter).
 func (s Stream[T]) FlatMap[U any](fn func(T) []U) Stream[U] {
-	out := make([]U, 0, len(s.items))
-	for _, v := range s.items {
-		out = append(out, fn(v)...)
-	}
-	return Stream[U]{items: out}
+	return Stream[U]{items: slices.Collect(flatMapSeq(slices.Values(s.items), fn))}
 }
 
 // Reduce folds every element into an accumulator of type U.
@@ -224,22 +229,10 @@ type Gatherer[T, A, U any] struct {
 	Finish func(state A, emit func(U))
 }
 
-// Gather runs g over the Stream.
+// Gather runs g over the Stream — the same engine (gatherSeq) Seq's own
+// Gather uses, driven here via slices.Values then collected immediately.
 func (s Stream[T]) Gather[A, U any](g Gatherer[T, A, U]) Stream[U] {
-	state := g.Init()
-	var out []U
-	emit := func(u U) { out = append(out, u) }
-	for _, v := range s.items {
-		next, cont := g.Integrate(state, v, emit)
-		state = next
-		if !cont {
-			break
-		}
-	}
-	if g.Finish != nil {
-		g.Finish(state, emit)
-	}
-	return Stream[U]{items: out}
+	return Stream[U]{items: slices.Collect(gatherSeq(slices.Values(s.items), g))}
 }
 
 func statelessGatherer[T, U any](integrate func(item T, emit func(U))) Gatherer[T, struct{}, U] {
@@ -271,10 +264,10 @@ func (s Stream[T]) FilterMap[U any](fn func(T) (U, bool)) Stream[U] {
 	})
 }
 
-// TakeWhile returns elements up to but not including the first one for
-// which fn is false — Java 9+/Rust/C++20's take_while.
-func (s Stream[T]) TakeWhile(fn func(T) bool) Stream[T] {
-	return s.Gather(Gatherer[T, struct{}, T]{
+// takeWhileGatherer is TakeWhile's shared engine — Stream.TakeWhile and
+// Seq.TakeWhile both just run this via Gather.
+func takeWhileGatherer[T any](fn func(T) bool) Gatherer[T, struct{}, T] {
+	return Gatherer[T, struct{}, T]{
 		Init: func() struct{} { return struct{}{} },
 		Integrate: func(state struct{}, item T, emit func(T)) (struct{}, bool) {
 			if !fn(item) {
@@ -283,13 +276,18 @@ func (s Stream[T]) TakeWhile(fn func(T) bool) Stream[T] {
 			emit(item)
 			return state, true
 		},
-	})
+	}
 }
 
-// DropWhile skips elements while fn is true, then keeps everything from
-// the first failure onward — Java 9+/Rust/C++20's drop_while.
-func (s Stream[T]) DropWhile(fn func(T) bool) Stream[T] {
-	return s.Gather(Gatherer[T, bool, T]{
+// TakeWhile returns elements up to but not including the first one for
+// which fn is false — Java 9+/Rust/C++20's take_while.
+func (s Stream[T]) TakeWhile(fn func(T) bool) Stream[T] {
+	return s.Gather(takeWhileGatherer(fn))
+}
+
+// dropWhileGatherer is DropWhile's shared engine.
+func dropWhileGatherer[T any](fn func(T) bool) Gatherer[T, bool, T] {
+	return Gatherer[T, bool, T]{
 		Init: func() bool { return true }, // still dropping
 		Integrate: func(dropping bool, item T, emit func(T)) (bool, bool) {
 			if dropping && fn(item) {
@@ -298,13 +296,30 @@ func (s Stream[T]) DropWhile(fn func(T) bool) Stream[T] {
 			emit(item)
 			return false, true
 		},
-	})
+	}
+}
+
+// DropWhile skips elements while fn is true, then keeps everything from
+// the first failure onward — Java 9+/Rust/C++20's drop_while.
+func (s Stream[T]) DropWhile(fn func(T) bool) Stream[T] {
+	return s.Gather(dropWhileGatherer(fn))
 }
 
 // Indexed pairs an element with its position — Enumerate's element type.
 type Indexed[T any] struct {
 	Index int
 	Value T
+}
+
+// enumerateGatherer is Enumerate's shared engine.
+func enumerateGatherer[T any]() Gatherer[T, int, Indexed[T]] {
+	return Gatherer[T, int, Indexed[T]]{
+		Init: func() int { return 0 },
+		Integrate: func(i int, item T, emit func(Indexed[T])) (int, bool) {
+			emit(Indexed[T]{Index: i, Value: item})
+			return i + 1, true
+		},
+	}
 }
 
 // Enumerate pairs each element with its zero-based index — Rust/C++23's
@@ -318,19 +333,12 @@ type Indexed[T any] struct {
 // specific shape, unrelated to Gather itself. The identical logic, called
 // as a free function taking Stream[T] as a parameter, compiles cleanly.
 func Enumerate[T any](s Stream[T]) Stream[Indexed[T]] {
-	return s.Gather(Gatherer[T, int, Indexed[T]]{
-		Init: func() int { return 0 },
-		Integrate: func(i int, item T, emit func(Indexed[T])) (int, bool) {
-			emit(Indexed[T]{Index: i, Value: item})
-			return i + 1, true
-		},
-	})
+	return s.Gather(enumerateGatherer[T]())
 }
 
-// DistinctBy keeps only the first element for each key fn extracts — works
-// for any T since only the extracted key needs to be comparable.
-func (s Stream[T]) DistinctBy[K comparable](fn func(T) K) Stream[T] {
-	return s.Gather(Gatherer[T, map[K]struct{}, T]{
+// distinctByGatherer is DistinctBy's shared engine.
+func distinctByGatherer[T any, K comparable](fn func(T) K) Gatherer[T, map[K]struct{}, T] {
+	return Gatherer[T, map[K]struct{}, T]{
 		Init: func() map[K]struct{} { return make(map[K]struct{}) },
 		Integrate: func(seen map[K]struct{}, item T, emit func(T)) (map[K]struct{}, bool) {
 			k := fn(item)
@@ -340,7 +348,13 @@ func (s Stream[T]) DistinctBy[K comparable](fn func(T) K) Stream[T] {
 			}
 			return seen, true
 		},
-	})
+	}
+}
+
+// DistinctBy keeps only the first element for each key fn extracts — works
+// for any T since only the extracted key needs to be comparable.
+func (s Stream[T]) DistinctBy[K comparable](fn func(T) K) Stream[T] {
+	return s.Gather(distinctByGatherer[T, K](fn))
 }
 
 // Distinct keeps only the first occurrence of each element, by direct
@@ -438,16 +452,14 @@ func WindowSliding[T any](n int) Gatherer[T, []T, []T] {
 // non-trivial. Sorting needs the whole Stream before it can emit anything,
 // unlike every Gatherer above which processes one item at a time.
 func (s Stream[T]) SortBy[K cmp.Ordered](fn func(T) K) Stream[T] {
-	out := slices.Clone(s.items)
-	slices.SortStableFunc(out, func(a, b T) int { return cmp.Compare(fn(a), fn(b)) })
-	return Stream[T]{items: out}
+	cmpFn := func(a, b T) int { return cmp.Compare(fn(a), fn(b)) }
+	return Stream[T]{items: slices.SortedStableFunc(slices.Values(s.items), cmpFn)}
 }
 
 // SortByDesc is SortBy in descending order.
 func (s Stream[T]) SortByDesc[K cmp.Ordered](fn func(T) K) Stream[T] {
-	out := slices.Clone(s.items)
-	slices.SortStableFunc(out, func(a, b T) int { return cmp.Compare(fn(b), fn(a)) })
-	return Stream[T]{items: out}
+	cmpFn := func(a, b T) int { return cmp.Compare(fn(b), fn(a)) }
+	return Stream[T]{items: slices.SortedStableFunc(slices.Values(s.items), cmpFn)}
 }
 
 // keyed pairs an extracted sort key with its source item — SortByCached's
