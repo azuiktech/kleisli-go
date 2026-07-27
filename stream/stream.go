@@ -364,6 +364,21 @@ func Scan[T, A any](initial A, fn func(A, T) A) Gatherer[T, A, A] {
 	}
 }
 
+// Fold is Reduce's non-terminal twin: the same single final accumulator,
+// but emitted once at the end instead of returned as a bare value — so
+// it keeps flowing as a one-element Stream[U] into FlatMap/Map rather
+// than ending the pipeline. Scan's opposite in that sense: Scan emits on
+// every step and never at the end; Fold emits only at the end.
+func Fold[T, U any](initial U, fn func(U, T) U) Gatherer[T, U, U] {
+	return Gatherer[T, U, U]{
+		Init: func() U { return initial },
+		Integrate: func(acc U, item T, emit func(U)) (U, bool) {
+			return fn(acc, item), true
+		},
+		Finish: func(acc U, emit func(U)) { emit(acc) },
+	}
+}
+
 // WindowFixed partitions into non-overlapping chunks of n — the last chunk
 // may be shorter. Java 24's Gatherers.windowFixed.
 func WindowFixed[T any](n int) Gatherer[T, []T, []T] {
