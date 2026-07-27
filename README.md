@@ -64,16 +64,37 @@ See [`option/option.go`](option/option.go) for the full API: `Some`, `None`,
 ## stream
 
 `Stream[T]` wraps a slice for eager, chainable pipeline operations.
+`Seq[T]` is its lazy, pull-based counterpart, wrapping the standard
+library's own `iter.Seq[T]` — the two share one implementation for every
+operation they both offer (`Filter`, `Map`, `TakeWhile`, ...), so a `Seq`
+pipeline genuinely short-circuits (`Filter().Map().First()` stops pulling
+the source the instant a match is found) while a `Stream` built from the
+same call stays eager, exactly as before. `Stream` additionally offers
+operations that need the whole sequence — `Reverse`, the `SortBy` family,
+`GroupBy`, `ToMap`, `Partition`, `Last`, `Len` — sound there specifically
+because a slice is always finite and already in memory; absent from
+`Seq`'s method set entirely, since an arbitrary `iter.Seq` might not be.
 
 ```go
 totals := stream.Of(invoices).
     Filter(func(inv Invoice) bool { return inv.Status == Unpaid }).
     GroupBy(func(inv Invoice) string { return inv.ClientID })
+
+found, ok := stream.FromSeq(someGenerator).
+    Filter(isValid).
+    First(matchesQuery) // stops pulling the moment it finds one
 ```
 
-See [`stream/stream.go`](stream/stream.go) for the full API: `Of`, `Empty`,
-`Filter`, `Each`, `Any`, `All`, `First`, `Last`, `Take`, `Skip`, `Reverse`,
-`Len`, `Collect`, `Map`, `FlatMap`, `Reduce`, `Fold`, `GroupBy`, `ToMap`.
+See [`stream/stream.go`](stream/stream.go) for `Stream`'s full API: `Of`
+(alias `FromSlice`), `Empty`, `OfMap`, `Filter`, `Each`, `Any`, `All`,
+`First`, `Last`, `Take`, `Skip`, `Reverse`, `Len`, `Collect`, `Map`,
+`FlatMap`, `Reduce`, `Fold`, `Scan`, `WindowFixed`, `WindowSliding`,
+`GroupBy`, `ToMap`, `DistinctBy`, `Distinct`, `Enumerate`, `SortBy`
+family, `Partition`, `Zip`, `Gather`. See [`stream/seq.go`](stream/seq.go)
+for `Seq`'s: `FromSeq`, `Filter`, `Map`, `FlatMap`, `Take`, `Skip`, `Each`,
+`Any`, `All`, `First`, `Reduce`, `Collect`, `Gather`, `MapMulti`,
+`FilterMap`, `TakeWhile`, `DropWhile`, `DistinctBy`, `DistinctSeq`,
+`EnumerateSeq`, `ZipSeq`.
 
 ## async
 
