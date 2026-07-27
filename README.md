@@ -1,11 +1,15 @@
 # kleisli-go
 
-Small, dependency-free generic utilities for Go 1.27+: a `Result[T]` type for
+Small generic utilities for Go 1.27+: a `Result[T]` type for
 railway-oriented error handling, an `Option[T]` type for present-or-absent
-values, and a `Stream[T]` type for functional-style slice pipelines. All
-three use Go 1.27's generic-method type parameters, so transformations that
-change type (`Map[U]`, `FlatMap[U]`, `Then[U]`, ...) are plain chained
-method calls rather than free functions or wrapper types.
+values, a `Stream[T]` type for functional-style slice pipelines, and a
+`Pipe[T]` type for CSP-style concurrent pipelines. All of these use Go
+1.27's generic-method type parameters, so transformations that change type
+(`Map[U]`, `FlatMap[U]`, `Then[U]`, ...) are plain chained method calls
+rather than free functions or wrapper types.
+
+`result`, `option`, and `stream` are dependency-free. `async` is the one
+exception — it takes `golang.org/x/time/rate` for `RateLimit`.
 
 The name comes from the [Kleisli category](https://en.wikipedia.org/wiki/Kleisli_category)
 — the category of monadic functions — which is exactly what `Result`'s (and
@@ -13,6 +17,7 @@ The name comes from the [Kleisli category](https://en.wikipedia.org/wiki/Kleisli
 
 ```go
 import (
+    "github.com/azuiktech/kleisli-go/async"
     "github.com/azuiktech/kleisli-go/option"
     "github.com/azuiktech/kleisli-go/result"
     "github.com/azuiktech/kleisli-go/stream"
@@ -68,7 +73,24 @@ totals := stream.Of(invoices).
 
 See [`stream/stream.go`](stream/stream.go) for the full API: `Of`, `Empty`,
 `Filter`, `Each`, `Any`, `All`, `First`, `Last`, `Take`, `Skip`, `Reverse`,
-`Len`, `Collect`, `Map`, `FlatMap`, `Reduce`, `GroupBy`, `ToMap`.
+`Len`, `Collect`, `Map`, `FlatMap`, `Reduce`, `Fold`, `GroupBy`, `ToMap`.
+
+## async
+
+`Pipe[T]` wraps a channel for CSP-style pipeline composition — `Stream`'s
+counterpart for work that benefits from goroutines: worker pools, rate
+limiting, fan-out/fan-in, batching. Every stage is an explicitly named
+call; nothing infers an execution strategy from context.
+
+```go
+total := async.From(urls).
+    Parallel(8, fetchAndParse).
+    Reduce(0, sum)
+```
+
+See [`async/pipe.go`](async/pipe.go) for the full API: `From`, `Go`, `Map`,
+`Parallel`, `Buffer`, `Fork`, `Merge`, `RateLimit`, `Window`, `Enumerate`,
+`Ordered`, `Collect`, `Reduce`, `Each`, `Await`.
 
 ## Installation
 
