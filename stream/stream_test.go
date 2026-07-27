@@ -152,6 +152,27 @@ func TestScan(t *testing.T) {
 	}
 }
 
+func TestFold(t *testing.T) {
+	got := Of([]int{1, 2, 3, 4}).Gather(Fold(0, func(acc, n int) int { return acc + n })).Collect()
+	want := []int{10}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Fold() = %v, want %v (a single, final accumulator)", got, want)
+	}
+}
+
+func TestFold_ChainsIntoFlatMap(t *testing.T) {
+	// The whole reason Fold exists over Reduce: the accumulator keeps
+	// flowing as a Stream[U] instead of ending the pipeline.
+	got := Of([]int{1, 2, 3}).
+		Gather(Fold(0, func(acc, n int) int { return acc + n })).
+		FlatMap(func(seed int) []int { return []int{seed, seed * 2} }).
+		Collect()
+	want := []int{6, 12}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Fold->FlatMap = %v, want %v", got, want)
+	}
+}
+
 func TestWindowFixed(t *testing.T) {
 	tests := []struct {
 		name  string
