@@ -2,13 +2,14 @@
 
 Small generic utilities for Go 1.27+: a `Result[T]` type for
 railway-oriented error handling, an `Option[T]` type for present-or-absent
-values, a `Stream[T]` type for functional-style slice pipelines, and a
-`Pipe[T]` type for CSP-style concurrent pipelines. All of these use Go
-1.27's generic-method type parameters, so transformations that change type
+values, a `Stream[T]` type for functional-style slice pipelines, a
+`Pipe[T]` type for CSP-style concurrent pipelines, and `Fn[T,U]`/`Fn2` for
+point-free function composition. All of these use Go 1.27's
+generic-method type parameters, so transformations that change type
 (`Map[U]`, `FlatMap[U]`, `Then[U]`, ...) are plain chained method calls
 rather than free functions or wrapper types.
 
-`result` and `option` are dependency-free. `async` takes
+`result`, `option`, and `tacit` are dependency-free. `async` takes
 `golang.org/x/time/rate` for `RateLimit`; `stream` pulls that in
 transitively via its own `Region`/`Parallel` bridge to `async.Pipe` (see
 below) — nothing in `stream`'s own code references it directly.
@@ -23,6 +24,7 @@ import (
     "github.com/azuiktech/kleisli-go/option"
     "github.com/azuiktech/kleisli-go/result"
     "github.com/azuiktech/kleisli-go/stream"
+    "github.com/azuiktech/kleisli-go/tacit"
 )
 ```
 
@@ -136,6 +138,31 @@ total := async.From(urls).
 See [`async/pipe.go`](async/pipe.go) for the full API: `From`, `Go`, `Map`,
 `Parallel`, `Buffer`, `Fork`, `Merge`, `RateLimit`, `Window`, `Enumerate`,
 `Ordered`, `Collect`, `Reduce`, `Each`, `Await`.
+
+## tacit
+
+`Fn[T, U]`/`Fn2[A, B, U]` are named function types for point-free (tacit)
+composition — building a new function entirely by combining existing
+ones, no named intermediate argument anywhere in the definition. Nothing
+here executes until the composed `Fn` is finally called with an
+argument, and nothing here is data or a pipeline — it exists purely to
+build the `func(T) U` values `stream.Map`/`async.Pipe.Parallel`/etc. take
+as arguments (a composed `Fn` is directly assignable wherever a plain
+`func(T) U` is expected, no conversion needed).
+
+```go
+var StdDev = Subtract.Fork(Identity, Mean).Then(Square).Then(Mean).Then(Sqrt)
+
+StdDev([]float64{2, 4, 4, 4, 5, 5, 7, 9}) // 2
+```
+
+`Fork` is the array-language fork train: `combine.Fork(f, g)(x) =
+combine(f(x), g(x))` — applying two functions to the same argument and
+combining their results with a third (the receiver). `Subtract.Fork(Identity,
+Mean)` is `x - mean(x)` without naming `x` or the mean anywhere.
+
+See [`tacit/tacit.go`](tacit/tacit.go) for the full API: `Then`, `Fork`,
+`Identity`.
 
 ## Installation
 
