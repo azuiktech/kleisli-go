@@ -8,8 +8,10 @@ values, a `Stream[T]` type for functional-style slice pipelines, and a
 (`Map[U]`, `FlatMap[U]`, `Then[U]`, ...) are plain chained method calls
 rather than free functions or wrapper types.
 
-`result`, `option`, and `stream` are dependency-free. `async` is the one
-exception — it takes `golang.org/x/time/rate` for `RateLimit`.
+`result` and `option` are dependency-free. `async` takes
+`golang.org/x/time/rate` for `RateLimit`; `stream` pulls that in
+transitively via its own `Region`/`Parallel` bridge to `async.Pipe` (see
+below) — nothing in `stream`'s own code references it directly.
 
 The name comes from the [Kleisli category](https://en.wikipedia.org/wiki/Kleisli_category)
 — the category of monadic functions — which is exactly what `Result`'s (and
@@ -95,6 +97,28 @@ for `Seq`'s: `FromSeq`, `Filter`, `Map`, `FlatMap`, `Take`, `Skip`, `Each`,
 `Any`, `All`, `First`, `Reduce`, `Collect`, `Gather`, `MapMulti`,
 `FilterMap`, `TakeWhile`, `DropWhile`, `DistinctBy`, `DistinctSeq`,
 `EnumerateSeq`, `ZipSeq`.
+
+[`stream/parallel.go`](stream/parallel.go) bridges `Stream` to `async.Pipe`
+(below) for the one thing this package deliberately doesn't do itself —
+run across goroutines. `Region` is the general form, taking a closure that
+can call anything `async.Pipe` offers; `Parallel` is sugar over `Region`
+for the single most common case.
+
+```go
+// Region: any Pipe operation, chained however the region needs.
+throttled := stream.Of(urls).
+    Region(func(p async.Pipe[string]) async.Pipe[string] {
+        return p.RateLimit(ctx, limiter)
+    }).
+    Collect()
+
+// Parallel: sugar over Region for bounded concurrency alone.
+fetched := stream.Of(urls).Parallel(8, fetchAndParse).Collect()
+```
+
+`ToPipe`/`FromPipe` are the underlying, non-chained boundary crossing
+`Region` is built from, for callers who want to hold the `Pipe` across
+more than one statement.
 
 ## async
 
