@@ -245,3 +245,48 @@ func TestUnmarshalJSON_ExplicitNull(t *testing.T) {
 		t.Errorf("Unmarshal(null) = %v, want None", got)
 	}
 }
+
+func TestFromMap(t *testing.T) {
+	m := map[string]int{"a": 1, "b": 2}
+	if opt := FromMap(m, "a"); !opt.IsSome() || opt.MustGet() != 1 {
+		t.Errorf("FromMap(\"a\") got %v, want Some(1)", opt)
+	}
+	if opt := FromMap(m, "c"); !opt.IsNone() {
+		t.Errorf("FromMap(\"c\") got %v, want None", opt)
+	}
+
+	nilMap := map[string]*int{"nilKey": nil}
+	if opt := FromMap(nilMap, "nilKey"); !opt.IsNone() {
+		t.Errorf("FromMap(nilKey) got %v, want None", opt)
+	}
+}
+
+func TestFromOk(t *testing.T) {
+	m := map[string]string{"foo": "bar"}
+	v, ok := m["foo"]
+	if opt := FromOk(v, ok); !opt.IsSome() || opt.MustGet() != "bar" {
+		t.Errorf("FromOk(present) got %v, want Some(\"bar\")", opt)
+	}
+
+	v2, ok2 := m["missing"]
+	if opt := FromOk(v2, ok2); !opt.IsNone() {
+		t.Errorf("FromOk(absent) got %v, want None", opt)
+	}
+}
+
+func TestFromSlice(t *testing.T) {
+	items := []string{"first", "second"}
+	if opt := FromSlice(items, 0); !opt.IsSome() || opt.MustGet() != "first" {
+		t.Errorf("FromSlice(0) got %v, want Some(\"first\")", opt)
+	}
+	if opt := FromSlice(items, 1); !opt.IsSome() || opt.MustGet() != "second" {
+		t.Errorf("FromSlice(1) got %v, want Some(\"second\")", opt)
+	}
+	if opt := FromSlice(items, 2); !opt.IsNone() {
+		t.Errorf("FromSlice(2) got %v, want None", opt)
+	}
+	if opt := FromSlice(items, -1); !opt.IsNone() {
+		t.Errorf("FromSlice(-1) got %v, want None", opt)
+	}
+}
+

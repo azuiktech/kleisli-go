@@ -21,10 +21,12 @@ The name comes from the [Kleisli category](https://en.wikipedia.org/wiki/Kleisli
 ```go
 import (
     "github.com/azuiktech/kleisli-go/async"
+    "github.com/azuiktech/kleisli-go/lazy"
     "github.com/azuiktech/kleisli-go/option"
     "github.com/azuiktech/kleisli-go/result"
     "github.com/azuiktech/kleisli-go/stream"
     "github.com/azuiktech/kleisli-go/tacit"
+    "github.com/azuiktech/kleisli-go/value"
 )
 ```
 
@@ -59,11 +61,45 @@ var p *User
 name := option.From(p).
     Map(func(u *User) string { return u.Name }).
     OrElse("")
+
+userOpt := option.FromMap(usersByID, 123)
 ```
 
 See [`option/option.go`](option/option.go) for the full API: `Some`, `None`,
-`From`, `ToPtr`, `IsSome`, `IsNone`, `Unwrap`, `MustGet`, `Expect`, `OrElse`,
+`From`, `FromMap`, `FromOk`, `FromSlice`, `ToPtr`, `IsSome`, `IsNone`, `Unwrap`, `MustGet`, `Expect`, `OrElse`,
 `OrElseGet`, `Filter`, `Tap`, `Fold`, `Map`, `FlatMap`, `Then`.
+
+## value
+
+`value` provides standalone helpers for pointer manipulation, value pipelines, error fallbacks, and ternaries.
+
+```go
+port := value.Deref(config.Port, 8080)
+name := value.Cond(user != nil, user.Name, "Guest")
+data := value.Must(os.ReadFile(path))
+```
+
+See [`value/value.go`](value/value.go) for the full API: `Must`, `Fallback`,
+`FallbackGet`, `Cond`, `CondGet`, `Ptr`, `Deref`, `DerefGet`, `DerefZero`,
+`Tap`, `Pipe`, `Zero`, `IsZero`, `Coalesce`.
+
+## lazy
+
+`lazy` provides thread-safe, memoized zero-argument lazy computation (`Lazy[T]`)
+backed by `sync.OnceValue`, along with key-based 1-argument function
+memoization (`Memoize` / `MemoizeErr`).
+
+```go
+// Deferred execution, evaluated at most once when Get() is called
+user := lazy.FromErr(func() (*User, error) { return fetchUser(id) })
+name := user.Get().Map(func(u *User) string { return u.Name }).OrElse("Guest")
+
+// Key-based memoization (thread-safe, executed at most once per key)
+cachedFetch := lazy.MemoizeErr(fetchUserByID)
+```
+
+See [`lazy/lazy.go`](lazy/lazy.go) for the full API: `New`, `FromErr`,
+`Get`, `Map`, `FlatMap`, `ToOption`, `Memoize`, `MemoizeErr`.
 
 ## stream
 
@@ -163,6 +199,7 @@ Mean)` is `x - mean(x)` without naming `x` or the mean anywhere.
 
 See [`tacit/tacit.go`](tacit/tacit.go) for the full API: `Then`, `Fork`,
 `Identity`.
+
 
 ## Installation
 
