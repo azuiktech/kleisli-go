@@ -55,6 +55,36 @@ func From[T any](val T) Option[T] {
 	return Option[T]{val: val, ok: true}
 }
 
+// FromMap returns Some(val) if key is present in m and its value is non-nil;
+// otherwise it returns None.
+func FromMap[K comparable, V any](m map[K]V, key K) Option[V] {
+	val, ok := m[key]
+	if !ok {
+		return None[V]()
+	}
+	return From(val)
+}
+
+// FromOk converts a Go-idiomatic (val, ok) pair (e.g. map lookup, channel receive,
+// type assertion) into an Option: returns Some(val) if ok is true and val is
+// non-nil; otherwise returns None.
+func FromOk[T any](val T, ok bool) Option[T] {
+	if !ok {
+		return None[T]()
+	}
+	return From(val)
+}
+
+// FromSlice returns Some(slice[idx]) if idx is within bounds [0, len(slice));
+// otherwise it returns None.
+func FromSlice[T any](slice []T, idx int) Option[T] {
+	if idx < 0 || idx >= len(slice) {
+		return None[T]()
+	}
+	return From(slice[idx])
+}
+
+
 func isNil(v any) bool {
 	if v == nil {
 		return true
