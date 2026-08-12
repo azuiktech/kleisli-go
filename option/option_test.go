@@ -2,9 +2,13 @@ package option
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/azuiktech/kleisli-go/result"
 )
+
 
 func TestSome_PanicsOnNil(t *testing.T) {
 	defer func() {
@@ -289,4 +293,98 @@ func TestFromSlice(t *testing.T) {
 		t.Errorf("FromSlice(-1) got %v, want None", opt)
 	}
 }
+
+func TestOption_Or(t *testing.T) {
+	s1 := Some("primary")
+	s2 := Some("secondary")
+	n := None[string]()
+
+	if got := s1.Or(s2); got.MustGet() != "primary" {
+		t.Errorf("s1.Or(s2) got %v, want primary", got)
+	}
+	if got := n.Or(s2); got.MustGet() != "secondary" {
+		t.Errorf("n.Or(s2) got %v, want secondary", got)
+	}
+}
+
+func TestOption_ToResult(t *testing.T) {
+	errBoom := errors.New("boom")
+	s := Some("val")
+	n := None[string]()
+
+	r1 := s.ToResult(errBoom)
+	if !r1.IsOK() || r1.Val() != "val" {
+		t.Errorf("Some.ToResult got %v, want OK(val)", r1)
+	}
+
+	r2 := n.ToResult(errBoom)
+	if !r2.IsErr() || !errors.Is(r2.Error(), errBoom) {
+		t.Errorf("None.ToResult got %v, want Err(boom)", r2)
+	}
+
+	r3 := n.ToResultGet(func() error { return errBoom })
+	if !r3.IsErr() || !errors.Is(r3.Error(), errBoom) {
+		t.Errorf("None.ToResultGet got %v, want Err(boom)", r3)
+	}
+}
+
+func TestOption_ToSlice(t *testing.T) {
+	s := Some(42)
+	n := None[int]()
+
+	sl1 := s.ToSlice()
+	if len(sl1) != 1 || sl1[0] != 42 {
+		t.Errorf("Some.ToSlice() got %v, want [42]", sl1)
+	}
+
+	sl2 := n.ToSlice()
+	if sl2 != nil {
+		t.Errorf("None.ToSlice() got %v, want nil", sl2)
+	}
+}
+
+func TestOption_Flatten(t *testing.T) {
+	nestedSome := Some(Some("inner"))
+	if got := Flatten(nestedSome); !got.IsSome() || got.MustGet() != "inner" {
+		t.Errorf("Flatten(Some(Some)) got %v, want Some(inner)", got)
+	}
+
+	nestedNoneInner := Some(None[string]())
+	if got := Flatten(nestedNoneInner); !got.IsNone() {
+		t.Errorf("Flatten(Some(None)) got %v, want None", got)
+	}
+
+	nestedNoneOuter := None[Option[string]]()
+	if got := Flatten(nestedNoneOuter); !got.IsNone() {
+		t.Errorf("Flatten(None) got %v, want None", got)
+	}
+}
+
+func TestOption_Contains(t *testing.T) {
+	s := Some("hello")
+	n := None[string]()
+
+	if !Contains(s, "hello") {
+		t.Errorf("Contains(Some(hello), hello) got false, want true")
+	}
+	if Contains(s, "world") {
+		t.Errorf("Contains(Some(hello), world) got true, want false")
+	}
+	if Contains(n, "hello") {
+		t.Errorf("Contains(None, hello) got true, want false")
+	}
+}
+
+func TestFromResult(t *testing.T) {
+	resOK := result.OK(100)
+	resErr := result.Err[int](errors.New("err"))
+
+	if opt := FromResult(resOK); !opt.IsSome() || opt.MustGet() != 100 {
+		t.Errorf("FromResult(OK(100)) got %v, want Some(100)", opt)
+	}
+	if opt := FromResult(resErr); !opt.IsNone() {
+		t.Errorf("FromResult(Err) got %v, want None", opt)
+	}
+}
+
 

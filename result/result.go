@@ -162,6 +162,15 @@ func (r Result[T]) OrElseGet(fn func(error) T) T {
 	return r.val
 }
 
+// Or returns r if it holds a success value; otherwise it returns fallback Result.
+func (r Result[T]) Or(fallback Result[T]) Result[T] {
+	if r.err != nil {
+		return fallback
+	}
+	return r
+}
+
+
 // MapErr transforms the error, leaving a success Result unchanged.
 // Use to annotate errors with context before they surface to callers.
 func (r Result[T]) MapErr(fn func(error) error) Result[T] {
@@ -217,6 +226,20 @@ func (r Result[T]) FlatMap[U any](fn func(T) Result[U]) Result[U] {
 	}
 	return fn(r.val)
 }
+
+// Flatten collapses a nested Result[Result[T]] into a single Result[T].
+func Flatten[T any](r Result[Result[T]]) Result[T] {
+	if r.err != nil {
+		return Err[T](r.err)
+	}
+	return r.val
+}
+
+// Contains reports whether r holds a success value equal to target.
+func Contains[T comparable](r Result[T], target T) bool {
+	return r.err == nil && r.val == target
+}
+
 
 // Then chains a Go-idiomatic (U, error)-returning function.
 func (r Result[T]) Then[U any](fn func(T) (U, error)) Result[U] {
