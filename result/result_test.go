@@ -241,3 +241,49 @@ func TestUnmarshalJSON_MalformedInput(t *testing.T) {
 		t.Error("Unmarshal({}) error = nil, want an error for missing ok/err key")
 	}
 }
+
+func TestOr(t *testing.T) {
+	ok1 := OK("primary")
+	ok2 := OK("secondary")
+	err1 := Err[string](errBoom)
+
+	if got := ok1.Or(ok2); got.Val() != "primary" {
+		t.Errorf("ok1.Or(ok2) got %v, want primary", got)
+	}
+	if got := err1.Or(ok2); got.Val() != "secondary" {
+		t.Errorf("err1.Or(ok2) got %v, want secondary", got)
+	}
+}
+
+func TestFlatten(t *testing.T) {
+	nestedOK := OK(OK("inner"))
+	if got := Flatten(nestedOK); !got.IsOK() || got.Val() != "inner" {
+		t.Errorf("Flatten(OK(OK)) got %v, want OK(inner)", got)
+	}
+
+	nestedErrInner := OK(Err[string](errBoom))
+	if got := Flatten(nestedErrInner); !got.IsErr() || !errors.Is(got.Error(), errBoom) {
+		t.Errorf("Flatten(OK(Err)) got %v, want Err(boom)", got)
+	}
+
+	nestedErrOuter := Err[Result[string]](errBoom)
+	if got := Flatten(nestedErrOuter); !got.IsErr() || !errors.Is(got.Error(), errBoom) {
+		t.Errorf("Flatten(Err) got %v, want Err(boom)", got)
+	}
+}
+
+func TestContains(t *testing.T) {
+	ok := OK("hello")
+	err := Err[string](errBoom)
+
+	if !Contains(ok, "hello") {
+		t.Errorf("Contains(OK(hello), hello) got false, want true")
+	}
+	if Contains(ok, "world") {
+		t.Errorf("Contains(OK(hello), world) got true, want false")
+	}
+	if Contains(err, "hello") {
+		t.Errorf("Contains(Err, hello) got true, want false")
+	}
+}
+

@@ -15,7 +15,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+
+	"github.com/azuiktech/kleisli-go/result"
 )
+
 
 // Option holds either a present, non-nil value of type T or nothing. The
 // two are mutually exclusive by construction (there is no way to construct
@@ -83,6 +86,16 @@ func FromSlice[T any](slice []T, idx int) Option[T] {
 	}
 	return From(slice[idx])
 }
+
+// FromResult converts a result.Result[T] into an Option[T]: an error becomes
+// None, and a success value becomes Some(val).
+func FromResult[T any](r result.Result[T]) Option[T] {
+	if r.IsErr() {
+		return None[T]()
+	}
+	return From(r.Val())
+}
+
 
 
 func isNil(v any) bool {
@@ -185,6 +198,41 @@ func (o Option[T]) OrElseGet(fn func() T) T {
 	return o.val
 }
 
+// Or returns o if it holds a value; otherwise it returns fallback Option.
+func (o Option[T]) Or(fallback Option[T]) Option[T] {
+	if !o.ok {
+		return fallback
+	}
+	return o
+}
+
+// ToResult converts the Option into a result.Result[T], returning result.OK(val)
+// if present, or result.Err(err) if absent.
+func (o Option[T]) ToResult(err error) result.Result[T] {
+	if !o.ok {
+		return result.Err[T](err)
+	}
+	return result.OK(o.val)
+}
+
+// ToResultGet converts the Option into a result.Result[T], returning result.OK(val)
+// if present, or result.Err(fn()) if absent.
+func (o Option[T]) ToResultGet(fn func() error) result.Result[T] {
+	if !o.ok {
+		return result.Err[T](fn())
+	}
+	return result.OK(o.val)
+}
+
+// ToSlice returns a single-element slice containing the value if present, or nil if absent.
+func (o Option[T]) ToSlice() []T {
+	if !o.ok {
+		return nil
+	}
+	return []T{o.val}
+}
+
+
 // Filter keeps a present value only if fn reports true for it; otherwise
 // (or if already absent) the result is None.
 func (o Option[T]) Filter(fn func(T) bool) Option[T] {
@@ -231,6 +279,20 @@ func (o Option[T]) FlatMap[U any](fn func(T) Option[U]) Option[U] {
 	}
 	return fn(o.val)
 }
+
+// Flatten collapses a nested Option[Option[T]] into a single Option[T].
+func Flatten[T any](o Option[Option[T]]) Option[T] {
+	if !o.ok {
+		return None[T]()
+	}
+	return o.val
+}
+
+// Contains reports whether o is present and holds a value equal to target.
+func Contains[T comparable](o Option[T], target T) bool {
+	return o.ok && o.val == target
+}
+
 
 // Then chains a Go-idiomatic (U, bool)-returning function.
 func (o Option[T]) Then[U any](fn func(T) (U, bool)) Option[U] {
