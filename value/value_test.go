@@ -142,3 +142,33 @@ func TestCoalesce(t *testing.T) {
 		t.Errorf("Coalesce all zeros got %d, want 0", got)
 	}
 }
+
+func TestWrapErrAndMapErr(t *testing.T) {
+	errBoom := errors.New("boom")
+
+	if err := value.WrapErr(nil, "ctx %s", "key"); err != nil {
+		t.Errorf("WrapErr(nil) got %v, want nil", err)
+	}
+
+	err := value.WrapErr(errBoom, "db secret get %q", "key1")
+	if err == nil || err.Error() != `db secret get "key1": boom` {
+		t.Errorf("WrapErr got %v, want %q", err, `db secret get "key1": boom`)
+	}
+	if !errors.Is(err, errBoom) {
+		t.Errorf("WrapErr errors.Is(errBoom) = false")
+	}
+
+	val, err2 := value.MapErr("data", nil, "ctx %s", "key")
+	if val != "data" || err2 != nil {
+		t.Errorf("MapErr(nil) got (%v, %v), want (data, nil)", val, err2)
+	}
+
+	val3, err3 := value.MapErr("data", errBoom, "db secret get %q", "key2")
+	if val3 != "data" || err3 == nil || err3.Error() != `db secret get "key2": boom` {
+		t.Errorf("MapErr(err) got (%v, %v)", val3, err3)
+	}
+	if !errors.Is(err3, errBoom) {
+		t.Errorf("MapErr errors.Is(errBoom) = false")
+	}
+}
+
