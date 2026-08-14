@@ -45,8 +45,9 @@ user, err := result.From(verifier.Verify(ctx, token)).
 ```
 
 See [`result/result.go`](result/result.go) for the full API: `OK`, `Err`,
-`From`, `Val`, `Error`, `Unwrap`, `MustGet`, `OrElse`, `OrElseGet`, `Or`, `MapErr`,
+`From`, `Unwrap`, `MustGet`, `OrElse`, `OrElseGet`, `Or`, `MapErr`,
 `MapErrf`, `WrapErr`, `Tap`, `TapErr`, `Map`, `FlatMap`, `Flatten`, `Then`, `Contains`.
+
 
 ## option
 

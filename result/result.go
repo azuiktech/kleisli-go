@@ -113,15 +113,10 @@ func (r Result[T]) IsOK() bool { return r.err == nil }
 // IsErr reports whether the Result holds an error.
 func (r Result[T]) IsErr() bool { return r.err != nil }
 
-// Val returns the success value, or the zero value of T on failure.
-func (r Result[T]) Val() T { return r.val }
-
-// Error returns the error, or nil on success.
-func (r Result[T]) Error() error { return r.err }
-
 // Unwrap returns the underlying (value, error) pair, matching Go's
 // standard multi-return convention for direct use in callers.
 func (r Result[T]) Unwrap() (T, error) { return r.val, r.err }
+
 
 // MustGet returns the success value or panics with the error.
 // Intended for tests and initialisation code only.

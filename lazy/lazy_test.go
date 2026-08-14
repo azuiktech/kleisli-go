@@ -59,12 +59,15 @@ func TestLazy_FromErr(t *testing.T) {
 	if atomic.LoadInt64(&count) != 1 {
 		t.Errorf("expected evaluation count to be 1, got %d", count)
 	}
-	if !res1.IsErr() || res1.Error() != errDummy {
+	_, err1 := res1.Unwrap()
+	_, err2 := res2.Unwrap()
+	if !res1.IsErr() || err1 != errDummy {
 		t.Errorf("res1 unexpected: %v", res1)
 	}
-	if !res2.IsErr() || res2.Error() != errDummy {
+	if !res2.IsErr() || err2 != errDummy {
 		t.Errorf("res2 unexpected: %v", res2)
 	}
+
 }
 
 func TestLazy_MapAndFlatMapDeferred(t *testing.T) {
