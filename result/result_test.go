@@ -64,8 +64,8 @@ func TestRecover(t *testing.T) {
 			if got.IsOK() != tt.wantOK {
 				t.Errorf("IsOK() = %v, want %v", got.IsOK(), tt.wantOK)
 			}
-			if tt.wantOK && got.Val() != tt.wantVal {
-				t.Errorf("Val() = %d, want %d", got.Val(), tt.wantVal)
+			if tt.wantOK && got.MustGet() != tt.wantVal {
+				t.Errorf("MustGet() = %d, want %d", got.MustGet(), tt.wantVal)
 			}
 		})
 	}
@@ -91,8 +91,8 @@ func TestZip2(t *testing.T) {
 			if got.IsOK() != tt.wantOK {
 				t.Errorf("IsOK() = %v, want %v", got.IsOK(), tt.wantOK)
 			}
-			if tt.wantOK && got.Val() != tt.wantVal {
-				t.Errorf("Val() = %q, want %q", got.Val(), tt.wantVal)
+			if tt.wantOK && got.MustGet() != tt.wantVal {
+				t.Errorf("MustGet() = %q, want %q", got.MustGet(), tt.wantVal)
 			}
 		})
 	}
@@ -118,8 +118,8 @@ func TestZip3(t *testing.T) {
 			if got.IsOK() != tt.wantOK {
 				t.Errorf("IsOK() = %v, want %v", got.IsOK(), tt.wantOK)
 			}
-			if tt.wantOK && got.Val() != tt.wantVal {
-				t.Errorf("Val() = %d, want %d", got.Val(), tt.wantVal)
+			if tt.wantOK && got.MustGet() != tt.wantVal {
+				t.Errorf("MustGet() = %d, want %d", got.MustGet(), tt.wantVal)
 			}
 		})
 	}
@@ -147,9 +147,9 @@ func TestSequence(t *testing.T) {
 			if !tt.wantOK {
 				return
 			}
-			gotVal := got.Val()
+			gotVal, _ := got.Unwrap()
 			if len(gotVal) != len(tt.wantVal) {
-				t.Fatalf("Val() = %v, want %v", gotVal, tt.wantVal)
+				t.Fatalf("Unwrap() = %v, want %v", gotVal, tt.wantVal)
 			}
 			for i := range gotVal {
 				if gotVal[i] != tt.wantVal[i] {
@@ -193,8 +193,9 @@ func TestJSON_RoundTrip_OK(t *testing.T) {
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
-	if !got.IsOK() || got.Val() != "hello" {
-		t.Errorf("round-tripped = IsOK=%v Val=%q, want IsOK=true Val=%q", got.IsOK(), got.Val(), "hello")
+	v, _ := got.Unwrap()
+	if !got.IsOK() || v != "hello" {
+		t.Errorf("round-tripped = IsOK=%v Val=%q, want IsOK=true Val=%q", got.IsOK(), v, "hello")
 	}
 }
 
@@ -208,8 +209,9 @@ func TestJSON_RoundTrip_Err(t *testing.T) {
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
-	if !got.IsErr() || got.Error().Error() != "boom" {
-		t.Errorf("round-tripped = IsErr=%v Error=%v, want IsErr=true Error=boom", got.IsErr(), got.Error())
+	_, gotErr := got.Unwrap()
+	if !got.IsErr() || gotErr.Error() != "boom" {
+		t.Errorf("round-tripped = IsErr=%v Error=%v, want IsErr=true Error=boom", got.IsErr(), gotErr)
 	}
 }
 
@@ -230,8 +232,9 @@ func TestJSON_RoundTrip_NilPointerSuccess(t *testing.T) {
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
-	if !got.IsOK() || got.Val() != nil {
-		t.Errorf("round-tripped = IsOK=%v Val=%v, want IsOK=true Val=nil", got.IsOK(), got.Val())
+	v, _ := got.Unwrap()
+	if !got.IsOK() || v != nil {
+		t.Errorf("round-tripped = IsOK=%v Val=%v, want IsOK=true Val=nil", got.IsOK(), v)
 	}
 }
 
@@ -247,27 +250,29 @@ func TestOr(t *testing.T) {
 	ok2 := OK("secondary")
 	err1 := Err[string](errBoom)
 
-	if got := ok1.Or(ok2); got.Val() != "primary" {
+	if got := ok1.Or(ok2); got.MustGet() != "primary" {
 		t.Errorf("ok1.Or(ok2) got %v, want primary", got)
 	}
-	if got := err1.Or(ok2); got.Val() != "secondary" {
+	if got := err1.Or(ok2); got.MustGet() != "secondary" {
 		t.Errorf("err1.Or(ok2) got %v, want secondary", got)
 	}
 }
 
 func TestFlatten(t *testing.T) {
 	nestedOK := OK(OK("inner"))
-	if got := Flatten(nestedOK); !got.IsOK() || got.Val() != "inner" {
+	if got := Flatten(nestedOK); !got.IsOK() || got.MustGet() != "inner" {
 		t.Errorf("Flatten(OK(OK)) got %v, want OK(inner)", got)
 	}
 
 	nestedErrInner := OK(Err[string](errBoom))
-	if got := Flatten(nestedErrInner); !got.IsErr() || !errors.Is(got.Error(), errBoom) {
+	_, errInner := Flatten(nestedErrInner).Unwrap()
+	if got := Flatten(nestedErrInner); !got.IsErr() || !errors.Is(errInner, errBoom) {
 		t.Errorf("Flatten(OK(Err)) got %v, want Err(boom)", got)
 	}
 
 	nestedErrOuter := Err[Result[string]](errBoom)
-	if got := Flatten(nestedErrOuter); !got.IsErr() || !errors.Is(got.Error(), errBoom) {
+	_, errOuter := Flatten(nestedErrOuter).Unwrap()
+	if got := Flatten(nestedErrOuter); !got.IsErr() || !errors.Is(errOuter, errBoom) {
 		t.Errorf("Flatten(Err) got %v, want Err(boom)", got)
 	}
 }
@@ -289,7 +294,7 @@ func TestContains(t *testing.T) {
 
 func TestMapErrfAndWrapErr(t *testing.T) {
 	ok := OK("secret")
-	if got := ok.MapErrf("db secret get %q", "my-key"); !got.IsOK() || got.Val() != "secret" {
+	if got := ok.MapErrf("db secret get %q", "my-key"); !got.IsOK() || got.MustGet() != "secret" {
 		t.Errorf("OK.MapErrf got %v, want OK(secret)", got)
 	}
 
@@ -298,22 +303,24 @@ func TestMapErrfAndWrapErr(t *testing.T) {
 	if !gotErr.IsErr() {
 		t.Fatalf("Err.MapErrf got OK, want Err")
 	}
-	if gotErr.Error().Error() != `db secret get "my-key": boom` {
-		t.Errorf("MapErrf error message got %q, want %q", gotErr.Error().Error(), `db secret get "my-key": boom`)
+	_, errVal := gotErr.Unwrap()
+	if errVal.Error() != `db secret get "my-key": boom` {
+		t.Errorf("MapErrf error message got %q, want %q", errVal.Error(), `db secret get "my-key": boom`)
 	}
-	if !errors.Is(gotErr.Error(), errBoom) {
+	if !errors.Is(errVal, errBoom) {
 		t.Errorf("MapErrf error wrapping chain broken, errors.Is(errBoom) = false")
 	}
 
 	// Testing with explicit %w
 	gotErrExplicit := err.WrapErr("failed %q: %w", "my-key")
-	if gotErrExplicit.Error().Error() != `failed "my-key": boom` {
-		t.Errorf("WrapErr error message got %q, want %q", gotErrExplicit.Error().Error(), `failed "my-key": boom`)
+	_, errExplicitVal := gotErrExplicit.Unwrap()
+	if errExplicitVal.Error() != `failed "my-key": boom` {
+		t.Errorf("WrapErr error message got %q, want %q", errExplicitVal.Error(), `failed "my-key": boom`)
 	}
-	if !errors.Is(gotErrExplicit.Error(), errBoom) {
+	if !errors.Is(errExplicitVal, errBoom) {
 		t.Errorf("WrapErr explicit %%w error wrapping chain broken")
 	}
-
 }
+
 
 

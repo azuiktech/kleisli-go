@@ -90,11 +90,13 @@ func FromSlice[T any](slice []T, idx int) Option[T] {
 // FromResult converts a result.Result[T] into an Option[T]: an error becomes
 // None, and a success value becomes Some(val).
 func FromResult[T any](r result.Result[T]) Option[T] {
-	if r.IsErr() {
+	val, err := r.Unwrap()
+	if err != nil {
 		return None[T]()
 	}
-	return From(r.Val())
+	return From(val)
 }
+
 
 
 

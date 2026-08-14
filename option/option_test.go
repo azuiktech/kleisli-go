@@ -313,19 +313,24 @@ func TestOption_ToResult(t *testing.T) {
 	n := None[string]()
 
 	r1 := s.ToResult(errBoom)
-	if !r1.IsOK() || r1.Val() != "val" {
+	r1Val, _ := r1.Unwrap()
+	if !r1.IsOK() || r1Val != "val" {
 		t.Errorf("Some.ToResult got %v, want OK(val)", r1)
 	}
 
 	r2 := n.ToResult(errBoom)
-	if !r2.IsErr() || !errors.Is(r2.Error(), errBoom) {
+	_, r2Err := r2.Unwrap()
+	if !r2.IsErr() || !errors.Is(r2Err, errBoom) {
 		t.Errorf("None.ToResult got %v, want Err(boom)", r2)
 	}
 
 	r3 := n.ToResultGet(func() error { return errBoom })
-	if !r3.IsErr() || !errors.Is(r3.Error(), errBoom) {
+	_, r3Err := r3.Unwrap()
+	if !r3.IsErr() || !errors.Is(r3Err, errBoom) {
 		t.Errorf("None.ToResultGet got %v, want Err(boom)", r3)
 	}
+
+
 }
 
 func TestOption_ToSlice(t *testing.T) {
