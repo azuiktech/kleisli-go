@@ -49,6 +49,16 @@ func From[T any](val T, err error) Result[T] {
 	return OK(val)
 }
 
+// FromNonZero returns OK(val) if val is non-zero (val != zero); otherwise it returns Err[T](err).
+func FromNonZero[T comparable](val T, err error) Result[T] {
+	var zero T
+	if val == zero {
+		return Err[T](err)
+	}
+	return OK(val)
+}
+
+
 // wireResult is Result[T]'s JSON wire shape — Rust serde's externally
 // tagged representation for Result<T, E> ({"Ok": T} / {"Err": E}), adapted
 // to Go's lowercase field convention. Exactly one key is ever present: the

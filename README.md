@@ -45,7 +45,7 @@ user, err := result.From(verifier.Verify(ctx, token)).
 ```
 
 See [`result/result.go`](result/result.go) for the full API: `OK`, `Err`,
-`From`, `Unwrap`, `MustGet`, `OrElse`, `OrElseGet`, `Or`, `MapErr`,
+`From`, `FromNonZero`, `Unwrap`, `MustGet`, `OrElse`, `OrElseGet`, `Or`, `MapErr`,
 `MapErrf`, `WrapErr`, `Tap`, `TapErr`, `Map`, `FlatMap`, `Flatten`, `Then`, `Contains`.
 
 
@@ -64,12 +64,14 @@ name := option.From(p).
     OrElse("")
 
 userOpt := option.FromMap(usersByID, 123)
+tokenOpt := option.FromNonZero(cfg.AuthToken)
 ```
 
 See [`option/option.go`](option/option.go) for the full API: `Some`, `None`,
-`From`, `FromMap`, `FromOk`, `FromSlice`, `FromResult`, `ToPtr`, `ToResult`, `ToResultGet`, `ToSlice`,
+`From`, `FromMap`, `FromOk`, `FromNonZero`, `FromSlice`, `FromResult`, `ToPtr`, `ToResult`, `ToResultGet`, `ToSlice`,
 `IsSome`, `IsNone`, `Unwrap`, `MustGet`, `Expect`, `OrElse`, `OrElseGet`, `Or`,
 `Filter`, `Tap`, `Fold`, `Map`, `FlatMap`, `Flatten`, `Then`, `Contains`.
+
 
 
 ## value

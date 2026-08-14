@@ -322,5 +322,21 @@ func TestMapErrfAndWrapErr(t *testing.T) {
 	}
 }
 
+func TestFromNonZero(t *testing.T) {
+	if got := FromNonZero("hello", errBoom); !got.IsOK() || got.MustGet() != "hello" {
+		t.Errorf("FromNonZero(hello) got %v, want OK(hello)", got)
+	}
+	if got := FromNonZero("", errBoom); !got.IsErr() {
+		t.Errorf("FromNonZero(\"\") got %v, want Err", got)
+	}
+	if got := FromNonZero(42, errBoom); !got.IsOK() || got.MustGet() != 42 {
+		t.Errorf("FromNonZero(42) got %v, want OK(42)", got)
+	}
+	if got := FromNonZero(0, errBoom); !got.IsErr() {
+		t.Errorf("FromNonZero(0) got %v, want Err", got)
+	}
+}
+
+
 
 

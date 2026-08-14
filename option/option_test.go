@@ -392,4 +392,20 @@ func TestFromResult(t *testing.T) {
 	}
 }
 
+func TestFromNonZero(t *testing.T) {
+	if opt := FromNonZero("hello"); !opt.IsSome() || opt.MustGet() != "hello" {
+		t.Errorf("FromNonZero(hello) got %v, want Some(hello)", opt)
+	}
+	if opt := FromNonZero(""); !opt.IsNone() {
+		t.Errorf("FromNonZero(\"\") got %v, want None", opt)
+	}
+	if opt := FromNonZero(42); !opt.IsSome() || opt.MustGet() != 42 {
+		t.Errorf("FromNonZero(42) got %v, want Some(42)", opt)
+	}
+	if opt := FromNonZero(0); !opt.IsNone() {
+		t.Errorf("FromNonZero(0) got %v, want None", opt)
+	}
+}
+
+
 
