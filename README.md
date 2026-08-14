@@ -37,7 +37,7 @@ chaining fallible operations without repeated `if err != nil` checks.
 
 ```go
 user, err := result.From(verifier.Verify(ctx, token)).
-    MapErr(wrapUnauthorized).
+    MapErrf("verify token %q", token).
     Then(upsertUser).
     FlatMap(ensurePlan).
     Then(buildDTO).
@@ -46,7 +46,7 @@ user, err := result.From(verifier.Verify(ctx, token)).
 
 See [`result/result.go`](result/result.go) for the full API: `OK`, `Err`,
 `From`, `Val`, `Error`, `Unwrap`, `MustGet`, `OrElse`, `OrElseGet`, `Or`, `MapErr`,
-`Tap`, `TapErr`, `Map`, `FlatMap`, `Flatten`, `Then`, `Contains`.
+`MapErrf`, `WrapErr`, `Tap`, `TapErr`, `Map`, `FlatMap`, `Flatten`, `Then`, `Contains`.
 
 ## option
 
@@ -73,17 +73,19 @@ See [`option/option.go`](option/option.go) for the full API: `Some`, `None`,
 
 ## value
 
-`value` provides standalone helpers for pointer manipulation, value pipelines, error fallbacks, and ternaries.
+`value` provides standalone helpers for pointer manipulation, value pipelines, error fallbacks, formatting, and ternaries.
 
 ```go
 port := value.Deref(config.Port, 8080)
 name := value.Cond(user != nil, user.Name, "Guest")
 data := value.Must(os.ReadFile(path))
+secret, err := value.MapErr(fetchSecret(key), "get secret %q", key)
 ```
 
-See [`value/value.go`](value/value.go) for the full API: `Must`, `Fallback`,
-`FallbackGet`, `Cond`, `CondGet`, `Ptr`, `Deref`, `DerefGet`, `DerefZero`,
-`Tap`, `Pipe`, `Zero`, `IsZero`, `Coalesce`.
+See [`value/value.go`](value/value.go) for the full API: `Must`, `WrapErr`, `MapErr`,
+`Fallback`, `FallbackGet`, `Cond`, `CondGet`, `Ptr`, `Deref`, `DerefGet`,
+`DerefZero`, `Tap`, `Pipe`, `Zero`, `IsZero`, `Coalesce`.
+
 
 ## lazy
 

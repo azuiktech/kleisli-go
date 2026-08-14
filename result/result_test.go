@@ -287,3 +287,33 @@ func TestContains(t *testing.T) {
 	}
 }
 
+func TestMapErrfAndWrapErr(t *testing.T) {
+	ok := OK("secret")
+	if got := ok.MapErrf("db secret get %q", "my-key"); !got.IsOK() || got.Val() != "secret" {
+		t.Errorf("OK.MapErrf got %v, want OK(secret)", got)
+	}
+
+	err := Err[string](errBoom)
+	gotErr := err.MapErrf("db secret get %q", "my-key")
+	if !gotErr.IsErr() {
+		t.Fatalf("Err.MapErrf got OK, want Err")
+	}
+	if gotErr.Error().Error() != `db secret get "my-key": boom` {
+		t.Errorf("MapErrf error message got %q, want %q", gotErr.Error().Error(), `db secret get "my-key": boom`)
+	}
+	if !errors.Is(gotErr.Error(), errBoom) {
+		t.Errorf("MapErrf error wrapping chain broken, errors.Is(errBoom) = false")
+	}
+
+	// Testing with explicit %w
+	gotErrExplicit := err.WrapErr("failed %q: %w", "my-key")
+	if gotErrExplicit.Error().Error() != `failed "my-key": boom` {
+		t.Errorf("WrapErr error message got %q, want %q", gotErrExplicit.Error().Error(), `failed "my-key": boom`)
+	}
+	if !errors.Is(gotErrExplicit.Error(), errBoom) {
+		t.Errorf("WrapErr explicit %%w error wrapping chain broken")
+	}
+
+}
+
+

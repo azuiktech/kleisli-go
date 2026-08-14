@@ -16,7 +16,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
+
 
 // Result holds either a success value of type T or an error. The two are
 // mutually exclusive by construction (Err refuses a nil error, OK never sets
@@ -179,6 +181,35 @@ func (r Result[T]) MapErr(fn func(error) error) Result[T] {
 	}
 	return r
 }
+
+func wrapErr(err error, format string, args ...any) error {
+	if err == nil {
+		return nil
+	}
+	if !strings.Contains(format, "%w") {
+		format += ": %w"
+		args = append(args, err)
+	} else if strings.Count(format, "%")-strings.Count(format, "%%") > len(args) {
+		args = append(args, err)
+	}
+	return fmt.Errorf(format, args...)
+}
+
+// MapErrf annotates an error with a formatted context string if Result holds an error.
+// If format does not contain %w, ": %w" is automatically appended along with the underlying error,
+// preserving the error wrapping chain for errors.Is/errors.As.
+func (r Result[T]) MapErrf(format string, args ...any) Result[T] {
+	if r.err == nil {
+		return r
+	}
+	return Err[T](wrapErr(r.err, format, args...))
+}
+
+// WrapErr is an alias for MapErrf.
+func (r Result[T]) WrapErr(format string, args ...any) Result[T] {
+	return r.MapErrf(format, args...)
+}
+
 
 // Recover turns a failure into a fallback Result via fn — the fallback may
 // itself fail. A success Result passes through unchanged. Use for retry
