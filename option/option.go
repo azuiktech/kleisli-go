@@ -78,6 +78,16 @@ func FromOk[T any](val T, ok bool) Option[T] {
 	return From(val)
 }
 
+// FromNonZero returns Some(val) if val is non-zero (val != zero); otherwise it returns None.
+func FromNonZero[T comparable](val T) Option[T] {
+	var zero T
+	if val == zero {
+		return None[T]()
+	}
+	return Some(val)
+}
+
+
 // FromSlice returns Some(slice[idx]) if idx is within bounds [0, len(slice));
 // otherwise it returns None.
 func FromSlice[T any](slice []T, idx int) Option[T] {
