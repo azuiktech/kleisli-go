@@ -137,6 +137,16 @@ func (r Result[T]) MustGet() T {
 	return r.val
 }
 
+// MustErr returns the error or panics if the Result is OK.
+// Intended for tests and template rendering where error presence is guarded by IsErr().
+func (r Result[T]) MustErr() error {
+	if r.err == nil {
+		panic("result.MustErr called on OK Result")
+	}
+	return r.err
+}
+
+
 // Expect returns the success value or panics with msg wrapping the
 // underlying error — the friendly alternative to MustGet for
 // init/construction code, where a bare stack trace on the raw error isn't

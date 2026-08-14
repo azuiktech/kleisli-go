@@ -9,7 +9,21 @@ import (
 
 var errBoom = errors.New("boom")
 
+func TestMustErr(t *testing.T) {
+	if got := Err[int](errBoom).MustErr(); got != errBoom {
+		t.Errorf("MustErr on Err = %v, want %v", got, errBoom)
+	}
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("MustErr on OK did not panic")
+		}
+	}()
+	OK(42).MustErr()
+}
+
 func TestExpect(t *testing.T) {
+
 	if got := OK(42).Expect("loading answer"); got != 42 {
 		t.Errorf("Expect on OK = %d, want 42", got)
 	}
