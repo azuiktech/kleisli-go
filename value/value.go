@@ -3,6 +3,7 @@
 package value
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 )
@@ -131,6 +132,9 @@ func IsZero[T comparable](v T) bool {
 	var zero T
 	return v == zero
 }
+
+// Clamp returns v if lo ≤ v ≤ hi, lo if v < lo, or hi if v > hi.
+func Clamp[T cmp.Ordered](v, lo, hi T) T { return min(max(v, lo), hi) }
 
 // Coalesce returns the first non-zero value from vals. If all elements
 // are zero values (or vals is empty), it returns the zero value of T.
