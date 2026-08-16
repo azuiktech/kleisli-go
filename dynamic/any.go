@@ -14,6 +14,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+
+	"github.com/azuiktech/kleisli-go/option"
 )
 
 var (
@@ -63,6 +65,14 @@ func New(v any) Any {
 
 // Value returns the boxed value, or nil if none was ever set.
 func (d Any) Value() any { return d.value }
+
+// As extracts the boxed value as T, returning None if the assertion fails or
+// d holds no value — the Option-native alternative to a raw type assertion on
+// Value().
+func As[T any](d Any) option.Option[T] {
+	v, ok := d.value.(T)
+	return option.FromOk(v, ok)
+}
 
 // wireAny is Any's JSON wire shape: {"@type":"<name>","value":<payload>}.
 type wireAny struct {

@@ -116,6 +116,27 @@ func TestAny_UnmarshalJSON_UnknownTypeName_ReturnsError(t *testing.T) {
 	}
 }
 
+func TestAs_CorrectType_ReturnsSome(t *testing.T) {
+	d := New(point{X: 1, Y: 2})
+	got := As[point](d)
+	if got.IsNone() || got.MustGet() != (point{X: 1, Y: 2}) {
+		t.Errorf("As[point] = %v, want Some({1 2})", got)
+	}
+}
+
+func TestAs_WrongType_ReturnsNone(t *testing.T) {
+	d := New(point{X: 1, Y: 2})
+	if As[label](d).IsSome() {
+		t.Error("As[label] on a point Any returned Some, want None")
+	}
+}
+
+func TestAs_ZeroAny_ReturnsNone(t *testing.T) {
+	if As[point](Any{}).IsSome() {
+		t.Error("As[point] on zero Any returned Some, want None")
+	}
+}
+
 func TestAny_EmbeddedInAStruct_RoundTrips(t *testing.T) {
 	type wrapper struct {
 		Local Any `json:"local"`

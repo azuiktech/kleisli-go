@@ -134,6 +134,21 @@ func TestZeroAndIsZero(t *testing.T) {
 	}
 }
 
+func TestClamp(t *testing.T) {
+	if got := value.Clamp(5, 0, 10); got != 5 {
+		t.Errorf("Clamp(5,0,10) = %d, want 5", got)
+	}
+	if got := value.Clamp(-3, 0, 10); got != 0 {
+		t.Errorf("Clamp(-3,0,10) = %d, want 0", got)
+	}
+	if got := value.Clamp(15, 0, 10); got != 10 {
+		t.Errorf("Clamp(15,0,10) = %d, want 10", got)
+	}
+	if got := value.Clamp(0.5, 0.0, 1.0); got != 0.5 {
+		t.Errorf("Clamp(0.5,0,1) = %v, want 0.5", got)
+	}
+}
+
 func TestCoalesce(t *testing.T) {
 	if got := value.Coalesce("", "", "first", "second"); got != "first" {
 		t.Errorf("Coalesce got %q, want %q", got, "first")
