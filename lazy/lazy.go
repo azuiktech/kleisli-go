@@ -57,6 +57,18 @@ func (l Lazy[T]) ToOption() option.Option[T] {
 	return option.From(l.Get())
 }
 
+// ToResult evaluates Get() and converts via ToOption: a nil/absent value
+// becomes Err(err), anything else becomes OK.
+func (l Lazy[T]) ToResult(err error) result.Result[T] {
+	return l.ToOption().ToResult(err)
+}
+
+// ToResultGet is ToResult with a lazy error producer — fn is only called
+// when the value is absent, matching Option.ToResultGet's own semantics.
+func (l Lazy[T]) ToResultGet(fn func() error) result.Result[T] {
+	return l.ToOption().ToResultGet(fn)
+}
+
 // Memoize returns a thread-safe memoized version of fn. fn is executed at most
 // once per distinct key K, memoizing its output across concurrent calls.
 func Memoize[K comparable, V any](fn func(K) V) func(K) V {

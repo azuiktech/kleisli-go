@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"slices"
 	"testing"
+
+	"github.com/azuiktech/kleisli-go/option"
 )
 
 func TestFromSeq_Collect_RoundTrips(t *testing.T) {
@@ -277,6 +279,38 @@ func TestFromSlice_IsOf(t *testing.T) {
 	want := []int{1, 2, 3}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("FromSlice().Collect() = %v, want %v", got, want)
+	}
+}
+
+func TestToStream_Materializes(t *testing.T) {
+	got := FromSeq(slices.Values([]int{1, 2, 3})).ToStream().Collect()
+	if want := []int{1, 2, 3}; !reflect.DeepEqual(got, want) {
+		t.Errorf("ToStream().Collect() = %v, want %v", got, want)
+	}
+}
+
+func TestSeqOfOption(t *testing.T) {
+	if got := SeqOfOption(option.Some(7)).Collect(); !reflect.DeepEqual(got, []int{7}) {
+		t.Errorf("SeqOfOption(Some) = %v, want [7]", got)
+	}
+	if got := SeqOfOption(option.None[int]()).Collect(); len(got) != 0 {
+		t.Errorf("SeqOfOption(None) = %v, want []", got)
+	}
+}
+
+func TestSeqOfMap(t *testing.T) {
+	m := map[string]int{"a": 1, "b": 2}
+	got := SeqOfMap(m).ToStream().SortBy(func(p Pair[string, int]) string { return p.First }).Collect()
+	want := []Pair[string, int]{{"a", 1}, {"b", 2}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("SeqOfMap() sorted = %+v, want %+v", got, want)
+	}
+}
+
+func TestSeq_ToPipe_ProducesAllItems(t *testing.T) {
+	got := FromSeq(slices.Values([]int{1, 2, 3})).ToPipe().Collect()
+	if want := []int{1, 2, 3}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Seq.ToPipe().Collect() = %v, want %v", got, want)
 	}
 }
 

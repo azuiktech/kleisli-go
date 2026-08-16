@@ -111,6 +111,35 @@ func TestLazy_ToOption(t *testing.T) {
 	}
 }
 
+func TestLazy_ToResult(t *testing.T) {
+	sentinel := errors.New("absent")
+
+	ok := lazy.New(func() string { return "hello" })
+	if r := ok.ToResult(sentinel); r.IsErr() || r.MustGet() != "hello" {
+		t.Errorf("ToResult on present value = %v, want OK(\"hello\")", r)
+	}
+
+	var nilPtr *string
+	absent := lazy.New(func() *string { return nilPtr })
+	if r := absent.ToResult(sentinel); !r.IsErr() || r.MustErr() != sentinel {
+		t.Errorf("ToResult on nil value = %v, want Err(sentinel)", r)
+	}
+}
+
+func TestLazy_ToResultGet(t *testing.T) {
+	sentinel := errors.New("computed")
+	called := false
+	var nilPtr *string
+	absent := lazy.New(func() *string { return nilPtr })
+	r := absent.ToResultGet(func() error { called = true; return sentinel })
+	if !r.IsErr() || r.MustErr() != sentinel {
+		t.Errorf("ToResultGet = %v, want Err(sentinel)", r)
+	}
+	if !called {
+		t.Error("ToResultGet did not call the error producer")
+	}
+}
+
 func TestMemoize(t *testing.T) {
 	var calls int64
 	fn := func(k string) int {

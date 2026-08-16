@@ -29,6 +29,25 @@ type Seq[T any] struct {
 // protocol — as a Seq.
 func FromSeq[T any](seq iter.Seq[T]) Seq[T] { return Seq[T]{seq: seq} }
 
+// SeqOfOption lifts an Option into a single-element or empty Seq: Some(v)
+// yields v once, None yields nothing.
+func SeqOfOption[T any](o option.Option[T]) Seq[T] {
+	return FromSeq(slices.Values(o.ToSlice()))
+}
+
+// SeqOfMap wraps a map's entries as a Seq of Pair — the lazy counterpart
+// of stream.OfMap. Map iteration order is randomized by Go, so callers
+// needing a deterministic order should collect and sort.
+func SeqOfMap[K comparable, V any](m map[K]V) Seq[Pair[K, V]] {
+	return FromSeq(func(yield func(Pair[K, V]) bool) {
+		for k, v := range m {
+			if !yield(Pair[K, V]{First: k, Second: v}) {
+				return
+			}
+		}
+	})
+}
+
 // filterSeq is Filter's shared engine.
 func filterSeq[T any](seq iter.Seq[T], fn func(T) bool) iter.Seq[T] {
 	return func(yield func(T) bool) {
@@ -179,6 +198,11 @@ func (s Seq[T]) Reduce[U any](initial U, fn func(U, T) U) U {
 // Collect drains s into a slice — the one operation that forces full
 // materialization, same status as any other terminal.
 func (s Seq[T]) Collect() []T { return slices.Collect(s.seq) }
+
+// ToStream materializes the Seq into an eager Stream. This forces full
+// evaluation — choose Stream over Seq when downstream operations need
+// the whole collection at once (sorting, reversing, grouping).
+func (s Seq[T]) ToStream() Stream[T] { return Of(s.Collect()) }
 
 // gatherSeq is Gather's shared engine — the same Gatherer value Stream
 // uses, driven by a pull instead of a slice loop, emitting as it goes
