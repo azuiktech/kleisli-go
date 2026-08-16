@@ -3,6 +3,8 @@ package stream
 import (
 	"reflect"
 	"testing"
+
+	"github.com/azuiktech/kleisli-go/option"
 )
 
 func TestLast(t *testing.T) {
@@ -363,6 +365,22 @@ func TestMaxBy(t *testing.T) {
 
 	if Of([]item{}).MaxBy(func(i item) int { return i.N }).IsSome() {
 		t.Error("MaxBy() on empty Stream returned Some")
+	}
+}
+
+func TestToSeq_RoundTrips(t *testing.T) {
+	got := Of([]int{1, 2, 3}).ToSeq().Collect()
+	if want := []int{1, 2, 3}; !reflect.DeepEqual(got, want) {
+		t.Errorf("ToSeq().Collect() = %v, want %v", got, want)
+	}
+}
+
+func TestOfOption(t *testing.T) {
+	if got := OfOption(option.Some(42)).Collect(); !reflect.DeepEqual(got, []int{42}) {
+		t.Errorf("OfOption(Some) = %v, want [42]", got)
+	}
+	if got := OfOption(option.None[int]()).Collect(); len(got) != 0 {
+		t.Errorf("OfOption(None) = %v, want []", got)
 	}
 }
 

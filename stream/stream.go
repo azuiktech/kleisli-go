@@ -43,6 +43,10 @@ func Of[T any](items []T) Stream[T] { return Stream[T]{items: items} }
 // FromSlice is Of, named to read as Seq's own FromSeq's counterpart.
 func FromSlice[T any](items []T) Stream[T] { return Of(items) }
 
+// OfOption lifts an Option into a single-element or empty Stream: Some(v)
+// becomes Stream{v}, None becomes an empty Stream.
+func OfOption[T any](o option.Option[T]) Stream[T] { return Of(o.ToSlice()) }
+
 // Empty returns a Stream with no elements.
 func Empty[T any]() Stream[T] { return Stream[T]{} }
 
@@ -147,6 +151,9 @@ func (s Stream[T]) Len() int { return len(s.items) }
 
 // Collect returns the underlying slice.
 func (s Stream[T]) Collect() []T { return s.items }
+
+// ToSeq converts the Stream into a lazy Seq backed by the same items.
+func (s Stream[T]) ToSeq() Seq[T] { return FromSeq(slices.Values(s.items)) }
 
 // --- Go 1.27 generic methods ---
 

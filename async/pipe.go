@@ -15,6 +15,7 @@ package async
 
 import (
 	"context"
+	"iter"
 	"sync"
 
 	"golang.org/x/time/rate"
@@ -34,6 +35,21 @@ func From[T any](items []T) Pipe[T] {
 		defer close(ch)
 		for _, item := range items {
 			ch <- item
+		}
+	}()
+	return Pipe[T]{ch: ch}
+}
+
+// FromIter lifts an iter.Seq[T] into a Pipe, pulling lazily as the
+// downstream consumer reads — no intermediate slice. The natural bridge
+// from stdlib's own iterator protocol (slices.Values, maps.All, …) to
+// Pipe's channel-backed pipeline.
+func FromIter[T any](seq iter.Seq[T]) Pipe[T] {
+	ch := make(chan T)
+	go func() {
+		defer close(ch)
+		for v := range seq {
+			ch <- v
 		}
 	}()
 	return Pipe[T]{ch: ch}

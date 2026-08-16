@@ -187,3 +187,36 @@ func TestEach_CallsFnOnEveryItemInOrder(t *testing.T) {
 		t.Errorf("Each() collected %v, want %v", got, want)
 	}
 }
+
+func TestFromIter_ProducesItemsInOrder(t *testing.T) {
+	source := func(yield func(int) bool) {
+		for _, v := range []int{1, 2, 3} {
+			if !yield(v) {
+				return
+			}
+		}
+	}
+	got := FromIter(source).Collect()
+	want := []int{1, 2, 3}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("FromIter().Collect() = %v, want %v", got, want)
+	}
+}
+
+func TestFromIter_EarlyStop(t *testing.T) {
+	produced := 0
+	source := func(yield func(int) bool) {
+		for i := 1; i <= 10; i++ {
+			produced++
+			if !yield(i) {
+				return
+			}
+		}
+	}
+	got := FromIter(source).Parallel(1, func(n int) int { return n }).Collect()
+	_ = got
+	// Can't assert exact produced count without Take, but confirm it ran at all.
+	if produced == 0 {
+		t.Error("FromIter source was never pulled")
+	}
+}

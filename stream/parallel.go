@@ -15,6 +15,11 @@ import "github.com/azuiktech/kleisli-go/async"
 // it works.
 func (s Stream[T]) ToPipe() async.Pipe[T] { return async.From(s.items) }
 
+// ToPipe hands s's elements to async.Pipe without materializing the Seq
+// first — items are produced lazily into the channel as the downstream
+// consumer reads them.
+func (s Seq[T]) ToPipe() async.Pipe[T] { return async.FromIter(s.seq) }
+
 // FromPipe collects an async.Pipe back into a Stream — ToPipe's return
 // half.
 func FromPipe[T any](p async.Pipe[T]) Stream[T] { return Of(p.Collect()) }
