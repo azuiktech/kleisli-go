@@ -6,13 +6,12 @@ import (
 )
 
 func TestLast(t *testing.T) {
-	got, ok := Of([]int{1, 2, 3, 2, 1}).Last(func(n int) bool { return n == 2 })
-	if !ok || got != 2 {
-		t.Errorf("Last() = (%d, %v), want (2, true)", got, ok)
+	got := Of([]int{1, 2, 3, 2, 1}).Last(func(n int) bool { return n == 2 })
+	if got.IsNone() || got.MustGet() != 2 {
+		t.Errorf("Last() = %v, want Some(2)", got)
 	}
 
-	_, ok = Of([]int{1, 2, 3}).Last(func(n int) bool { return n == 99 })
-	if ok {
+	if Of([]int{1, 2, 3}).Last(func(n int) bool { return n == 99 }).IsSome() {
 		t.Error("Last() found a match that doesn't exist")
 	}
 }
@@ -24,12 +23,12 @@ func TestLast_ShortCircuitsFromTheEnd(t *testing.T) {
 		items[i] = i
 	}
 
-	got, ok := Of(items).Last(func(n int) bool {
+	got := Of(items).Last(func(n int) bool {
 		calls++
 		return n == 99 // the very last element
 	})
-	if !ok || got != 99 {
-		t.Fatalf("Last() = (%d, %v), want (99, true)", got, ok)
+	if got.IsNone() || got.MustGet() != 99 {
+		t.Fatalf("Last() = %v, want Some(99)", got)
 	}
 	if calls != 1 {
 		t.Errorf("fn called %d times, want 1 (Last should scan backward and stop immediately)", calls)
@@ -319,5 +318,61 @@ func TestZip(t *testing.T) {
 				t.Errorf("Zip() = %+v, want %+v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestFlatten(t *testing.T) {
+	got := Flatten(Of([][]int{{1, 2}, {3}, {4, 5, 6}})).Collect()
+	if want := []int{1, 2, 3, 4, 5, 6}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Flatten() = %v, want %v", got, want)
+	}
+
+	if got := Flatten(Of([][]int{})).Collect(); len(got) != 0 {
+		t.Errorf("Flatten(empty) = %v, want []", got)
+	}
+}
+
+func TestMinBy(t *testing.T) {
+	type item struct {
+		Name string
+		N    int
+	}
+	items := []item{{"b", 2}, {"a", 1}, {"c", 3}}
+
+	got := Of(items).MinBy(func(i item) int { return i.N })
+	if got.IsNone() || got.MustGet().N != 1 {
+		t.Errorf("MinBy() = %+v, want Some({a 1})", got)
+	}
+
+	if Of([]item{}).MinBy(func(i item) int { return i.N }).IsSome() {
+		t.Error("MinBy() on empty Stream returned Some")
+	}
+}
+
+func TestMaxBy(t *testing.T) {
+	type item struct {
+		Name string
+		N    int
+	}
+	items := []item{{"b", 2}, {"a", 1}, {"c", 3}}
+
+	got := Of(items).MaxBy(func(i item) int { return i.N })
+	if got.IsNone() || got.MustGet().N != 3 {
+		t.Errorf("MaxBy() = %+v, want Some({c 3})", got)
+	}
+
+	if Of([]item{}).MaxBy(func(i item) int { return i.N }).IsSome() {
+		t.Error("MaxBy() on empty Stream returned Some")
+	}
+}
+
+func TestMinBy_TiesKeepFirst(t *testing.T) {
+	type item struct {
+		Name string
+		N    int
+	}
+	got := Of([]item{{"a", 1}, {"b", 1}, {"c", 2}}).MinBy(func(i item) int { return i.N }).MustGet()
+	if got.Name != "a" {
+		t.Errorf("MinBy() tie = %q, want %q (first element must win)", got.Name, "a")
 	}
 }

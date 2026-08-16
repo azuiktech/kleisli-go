@@ -48,11 +48,10 @@ func BuildInstructionPrompt(customBody option.Option[string], domain, role strin
 
 
 	// Validate required placeholders are present
-	missingVar, hasMissing := stream.Of(defaultPrompt.RequiredVars).First(func(v string) bool {
+	if missing := stream.Of(defaultPrompt.RequiredVars).First(func(v string) bool {
 		return !strings.Contains(body, v)
-	})
-	if hasMissing {
-		return result.Err[string](fmt.Errorf("template %q missing required variable %q", defaultPrompt.Slug, missingVar))
+	}); missing.IsSome() {
+		return result.Err[string](fmt.Errorf("template %q missing required variable %q", defaultPrompt.Slug, missing.MustGet()))
 	}
 
 	// Substitute variables
