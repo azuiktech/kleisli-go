@@ -123,12 +123,12 @@ func TestSeq_First_ShortCircuitsAcrossFilterAndMap(t *testing.T) {
 			}
 		}
 	}
-	got, ok := FromSeq(source).
+	got := FromSeq(source).
 		Filter(func(n int) bool { return n%2 == 0 }).
 		Map(func(n int) string { return string(rune('0' + n%10)) }).
 		First(func(s string) bool { return s == "4" })
-	if !ok || got != "4" {
-		t.Fatalf("First() = (%q, %v), want (\"4\", true)", got, ok)
+	if got.IsNone() || got.MustGet() != "4" {
+		t.Fatalf("First() = %v, want Some(\"4\")", got)
 	}
 	if calls != 4 {
 		t.Errorf("source produced %d items, want exactly 4 — Filter/Map/First must short-circuit end to end", calls)
@@ -277,5 +277,46 @@ func TestFromSlice_IsOf(t *testing.T) {
 	want := []int{1, 2, 3}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("FromSlice().Collect() = %v, want %v", got, want)
+	}
+}
+
+func TestFlattenSeq(t *testing.T) {
+	got := FlattenSeq(FromSeq(slices.Values([][]int{{1, 2}, {3}, {4, 5, 6}}))).Collect()
+	if want := []int{1, 2, 3, 4, 5, 6}; !reflect.DeepEqual(got, want) {
+		t.Errorf("FlattenSeq() = %v, want %v", got, want)
+	}
+}
+
+func TestSeq_MinBy(t *testing.T) {
+	type item struct {
+		Name string
+		N    int
+	}
+	items := []item{{"b", 2}, {"a", 1}, {"c", 3}}
+
+	got := FromSeq(slices.Values(items)).MinBy(func(i item) int { return i.N })
+	if got.IsNone() || got.MustGet().N != 1 {
+		t.Errorf("Seq.MinBy() = %+v, want Some({a 1})", got)
+	}
+
+	if FromSeq(slices.Values([]item{})).MinBy(func(i item) int { return i.N }).IsSome() {
+		t.Error("Seq.MinBy() on empty Seq returned Some")
+	}
+}
+
+func TestSeq_MaxBy(t *testing.T) {
+	type item struct {
+		Name string
+		N    int
+	}
+	items := []item{{"b", 2}, {"a", 1}, {"c", 3}}
+
+	got := FromSeq(slices.Values(items)).MaxBy(func(i item) int { return i.N })
+	if got.IsNone() || got.MustGet().N != 3 {
+		t.Errorf("Seq.MaxBy() = %+v, want Some({c 3})", got)
+	}
+
+	if FromSeq(slices.Values([]item{})).MaxBy(func(i item) int { return i.N }).IsSome() {
+		t.Error("Seq.MaxBy() on empty Seq returned Some")
 	}
 }

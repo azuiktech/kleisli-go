@@ -34,12 +34,10 @@ func AuditGraphTopology(startNode string, nodes map[string]GraphNodeSpec) result
 	}
 
 	// Step 1: Audit for invalid dual Fork + Ordinary transition configurations using stream.OfMap
-	invalidNode, hasConflict := stream.OfMap(nodes).First(func(p stream.Pair[string, GraphNodeSpec]) bool {
-		spec := p.Second
-		return spec.IsFork && len(spec.Transitions) > 0
-	})
-	if hasConflict {
-		return result.Err[GraphAudit](fmt.Errorf("invalid graph config: node %q cannot be both a Fork and an ordinary transition source", invalidNode.First))
+	if conflict := stream.OfMap(nodes).First(func(p stream.Pair[string, GraphNodeSpec]) bool {
+		return p.Second.IsFork && len(p.Second.Transitions) > 0
+	}); conflict.IsSome() {
+		return result.Err[GraphAudit](fmt.Errorf("invalid graph config: node %q cannot be both a Fork and an ordinary transition source", conflict.MustGet().First))
 	}
 
 	// Step 2: Compute reachability via Breadth-First Traversal (BFS)
@@ -62,11 +60,10 @@ func AuditGraphTopology(startNode string, nodes map[string]GraphNodeSpec) result
 	}
 
 	// Step 3: Check unreachable nodes using stream.OfMap
-	unreachableNode, hasUnreachable := stream.OfMap(nodes).First(func(p stream.Pair[string, GraphNodeSpec]) bool {
+	if unreachable := stream.OfMap(nodes).First(func(p stream.Pair[string, GraphNodeSpec]) bool {
 		return !visited[p.First]
-	})
-	if hasUnreachable {
-		return result.Err[GraphAudit](fmt.Errorf("unreachable node detected: node %q cannot be reached from start %q", unreachableNode.First, startNode))
+	}); unreachable.IsSome() {
+		return result.Err[GraphAudit](fmt.Errorf("unreachable node detected: node %q cannot be reached from start %q", unreachable.MustGet().First, startNode))
 	}
 
 	reachableList := stream.OfMap(visited).

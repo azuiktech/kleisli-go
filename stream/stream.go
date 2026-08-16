@@ -23,6 +23,8 @@ package stream
 import (
 	"cmp"
 	"slices"
+
+	"github.com/azuiktech/kleisli-go/option"
 )
 
 // Stream wraps a slice for pipeline operations. Every operation it
@@ -88,29 +90,27 @@ func (s Stream[T]) All(fn func(T) bool) bool {
 	return true
 }
 
-// First returns the first element satisfying fn, or (zero, false).
-func (s Stream[T]) First(fn func(T) bool) (T, bool) {
+// First returns Some(first element satisfying fn), or None.
+func (s Stream[T]) First(fn func(T) bool) option.Option[T] {
 	for _, v := range s.items {
 		if fn(v) {
-			return v, true
+			return option.Some(v)
 		}
 	}
-	var zero T
-	return zero, false
+	return option.None[T]()
 }
 
-// Last returns the last element satisfying fn, or (zero, false). Scans
-// backward so a match near the end is found without touching the rest of
-// the slice — O(1) best case, matching Rust's DoubleEndedIterator::rfind
-// rather than a forward scan that must always reach the end.
-func (s Stream[T]) Last(fn func(T) bool) (T, bool) {
+// Last returns Some(last element satisfying fn), or None. Scans backward so
+// a match near the end is found without touching the rest of the slice —
+// O(1) best case, matching Rust's DoubleEndedIterator::rfind rather than a
+// forward scan that must always reach the end.
+func (s Stream[T]) Last(fn func(T) bool) option.Option[T] {
 	for i := len(s.items) - 1; i >= 0; i-- {
 		if fn(s.items[i]) {
-			return s.items[i], true
+			return option.Some(s.items[i])
 		}
 	}
-	var zero T
-	return zero, false
+	return option.None[T]()
 }
 
 // Take returns a Stream containing at most n leading elements.
@@ -530,4 +530,47 @@ func Zip[A, B any](sa Stream[A], sb Stream[B]) Stream[Pair[A, B]] {
 		out[i] = Pair[A, B]{First: sa.items[i], Second: sb.items[i]}
 	}
 	return Stream[Pair[A, B]]{items: out}
+}
+
+// Flatten collapses a Stream[[]T] into a Stream[T], concatenating every inner
+// slice in order. The identity-FlatMap without the redundant closure.
+// A free function for the same reason Distinct and Enumerate are: a method on
+// Stream[T] cannot produce Stream[E] from Stream[[]E] — the element type would
+// have to appear both as the receiver's T and as []E, which Go methods don't
+// support without a second type parameter on the struct itself.
+func Flatten[T any](s Stream[[]T]) Stream[T] {
+	return Stream[T]{items: slices.Collect(flatMapSeq(slices.Values(s.items), func(sl []T) []T { return sl }))}
+}
+
+// MinBy returns the element with the smallest key fn extracts, in a single
+// linear pass. Returns None for an empty Stream. When multiple elements
+// share the minimum key the first one wins — matching SortBy's stable-sort
+// semantics.
+func (s Stream[T]) MinBy[K cmp.Ordered](fn func(T) K) option.Option[T] {
+	if len(s.items) == 0 {
+		return option.None[T]()
+	}
+	best, bestKey := s.items[0], fn(s.items[0])
+	for _, v := range s.items[1:] {
+		if k := fn(v); k < bestKey {
+			best, bestKey = v, k
+		}
+	}
+	return option.Some(best)
+}
+
+// MaxBy returns the element with the largest key fn extracts, in a single
+// linear pass. Returns None for an empty Stream. When multiple elements
+// share the maximum key the first one wins.
+func (s Stream[T]) MaxBy[K cmp.Ordered](fn func(T) K) option.Option[T] {
+	if len(s.items) == 0 {
+		return option.None[T]()
+	}
+	best, bestKey := s.items[0], fn(s.items[0])
+	for _, v := range s.items[1:] {
+		if k := fn(v); k > bestKey {
+			best, bestKey = v, k
+		}
+	}
+	return option.Some(best)
 }
