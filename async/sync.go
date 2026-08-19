@@ -15,18 +15,33 @@ func Of[C any](inner C) Sync[C] {
 	return Sync[C]{inner: inner}
 }
 
-// Write acquires the write lock, calls f with a pointer to the inner value,
-// then releases the lock. Use for any mutation or read-modify-write.
+// Write acquires the write lock, calls f, then releases the lock. Use for
+// mutations with no return value.
 func (s *Sync[C]) Write(f func(*C)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	f(&s.inner)
 }
 
-// Read acquires the read lock, calls f with a pointer to the inner value,
-// then releases the lock. Multiple readers may proceed concurrently.
+// Read acquires the read lock, calls f, then releases the lock. Use for
+// observations with no return value. Multiple readers may proceed concurrently.
 func (s *Sync[C]) Read(f func(*C)) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	f(&s.inner)
+}
+
+// Mutate acquires the write lock, calls f, and returns its result.
+func (s *Sync[C]) Mutate[R any](f func(*C) R) R {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return f(&s.inner)
+}
+
+// Map acquires the read lock, calls f, and returns its result.
+// Multiple readers may proceed concurrently.
+func (s *Sync[C]) Map[R any](f func(*C) R) R {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return f(&s.inner)
 }
