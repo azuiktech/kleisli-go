@@ -30,3 +30,18 @@ func (s *Sync[C]) Read(f func(*C)) {
 	defer s.mu.RUnlock()
 	f(&s.inner)
 }
+
+// Write returns the result of f called under the write lock.
+func Write[C, R any](s *Sync[C], f func(*C) R) R {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return f(&s.inner)
+}
+
+// Read returns the result of f called under the read lock.
+// Multiple readers may proceed concurrently.
+func Read[C, R any](s *Sync[C], f func(*C) R) R {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return f(&s.inner)
+}
