@@ -35,22 +35,22 @@ func TestSync_ConcurrentWrites(t *testing.T) {
 	}
 }
 
-func TestRead_ReturnsValue(t *testing.T) {
+func TestMap_ReturnsValue(t *testing.T) {
 	s := async.Of(42)
-	got := async.Read(&s, func(n *int) int { return *n })
+	got := s.Map(func(n *int) int { return *n })
 	if got != 42 {
 		t.Fatalf("want 42, got %d", got)
 	}
 }
 
-func TestWrite_ReturnsValue(t *testing.T) {
+func TestMutate_ReturnsValue(t *testing.T) {
 	s := async.Of(0)
-	prev := async.Write(&s, func(n *int) int { old := *n; *n = 99; return old })
+	prev := s.Mutate(func(n *int) int { old := *n; *n = 99; return old })
 	if prev != 0 {
 		t.Fatalf("want previous value 0, got %d", prev)
 	}
-	if got := async.Read(&s, func(n *int) int { return *n }); got != 99 {
-		t.Fatalf("want 99 after write, got %d", got)
+	if got := s.Map(func(n *int) int { return *n }); got != 99 {
+		t.Fatalf("want 99 after mutate, got %d", got)
 	}
 }
 
