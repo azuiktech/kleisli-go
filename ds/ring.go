@@ -103,12 +103,5 @@ func (r *RingBuffer[T]) Linearize() []T {
 // (oldest first). The iterator is a snapshot — subsequent mutations do not
 // affect it.
 func (r *RingBuffer[T]) All() iter.Seq[T] {
-	snap := r.Linearize()
-	return func(yield func(T) bool) {
-		for _, v := range snap {
-			if !yield(v) {
-				return
-			}
-		}
-	}
+	return slices.Values(r.Linearize())
 }
