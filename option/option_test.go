@@ -409,3 +409,24 @@ func TestFromNonZero(t *testing.T) {
 
 
 
+
+func TestVoid(t *testing.T) {
+	o := Void()
+	if !o.IsSome() {
+		t.Fatal("Void() must be Some")
+	}
+}
+
+func TestMap0_OnSome(t *testing.T) {
+	got := Some(42).Map0(func() string { return "hello" })
+	if !got.IsSome() || got.MustGet() != "hello" {
+		t.Errorf("Map0 on Some = %v, want Some(hello)", got)
+	}
+}
+
+func TestMap0_OnNone(t *testing.T) {
+	got := None[int]().Map0(func() string { return "hello" })
+	if !got.IsNone() {
+		t.Errorf("Map0 on None = %v, want None", got)
+	}
+}
