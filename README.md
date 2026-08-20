@@ -1,42 +1,49 @@
 # kleisli-go
 
-Small generic utilities for Go 1.27+: a `Result[T]` type for
-railway-oriented error handling, an `Option[T]` type for present-or-absent
-values, a `Stream[T]` type for functional-style slice pipelines, a
-`Pipe[T]` type for CSP-style concurrent pipelines, and `Fn[T,U]`/`Fn2` for
-point-free function composition. All of these use Go 1.27's
-generic-method type parameters, so transformations that change type
-(`Map[U]`, `FlatMap[U]`, `Then[U]`, ...) are plain chained method calls
-rather than free functions or wrapper types.
+Small generic utilities for Go 1.27+. Five packages cover the full surface:
 
-`result`, `option`, and `tacit` are dependency-free. `async` takes
-`golang.org/x/time/rate` for `RateLimit`; `stream` pulls that in
-transitively via its own `Region`/`Parallel` bridge to `async.Pipe` (see
-below) — nothing in `stream`'s own code references it directly.
+| Package | Contents |
+|---|---|
+| `adt` | `Result[T]`, `Option[T]`, `Unit`/`Void`, `Lazy[T]`, `Any` |
+| `fn` | value transforms, `Fn`/`Fn2` point-free composition, rotated-sequence algorithms, memoization |
+| `stream` | `Stream[T]` (eager) and `Seq[T]` (lazy) slice/iterator pipelines |
+| `async` | `Pipe[T]` CSP pipelines, `Sync[T]`, `Handle[T]`, `Ctx[T]` |
+| `ds` | `RingBuffer[T]`, `SyncRingBuffer[T]` |
+
+All types use Go 1.27 generic method type parameters, so transformations that
+change type (`Map[U]`, `FlatMap[U]`, `Then[U]`, …) are plain chained method
+calls rather than free functions or wrapper types.
 
 The name comes from the [Kleisli category](https://en.wikipedia.org/wiki/Kleisli_category)
-— the category of monadic functions — which is exactly what `Result`'s (and
-`Option`'s) `FlatMap`/`Then` compose.
+— the category of monadic functions — which is exactly what `Result`'s and
+`Option`'s `FlatMap`/`Then` compose.
 
 ```go
 import (
-    "github.com/azuiktech/kleisli-go/async"
-    "github.com/azuiktech/kleisli-go/lazy"
-    "github.com/azuiktech/kleisli-go/option"
-    "github.com/azuiktech/kleisli-go/result"
+    "github.com/azuiktech/kleisli-go/adt"
+    "github.com/azuiktech/kleisli-go/fn"
     "github.com/azuiktech/kleisli-go/stream"
-    "github.com/azuiktech/kleisli-go/tacit"
-    "github.com/azuiktech/kleisli-go/value"
+    "github.com/azuiktech/kleisli-go/async"
+    "github.com/azuiktech/kleisli-go/ds"
 )
 ```
 
-## result
+---
+
+## adt
+
+`adt` consolidates Result, Option, Unit, Lazy, and Any — the algebraic data
+types — into one package, eliminating the package-name repetition
+(`result.Result`, `option.Option`) and the circular dependency that previously
+blocked symmetric Result↔Option conversions.
+
+### Result[T]
 
 `Result[T]` holds either a success value or an error, with combinators for
 chaining fallible operations without repeated `if err != nil` checks.
 
 ```go
-user, err := result.From(verifier.Verify(ctx, token)).
+user, err := adt.From(verifier.Verify(ctx, token)).
     MapErrf("verify token %q", token).
     Then(upsertUser).
     FlatMap(ensurePlan).
@@ -44,174 +51,213 @@ user, err := result.From(verifier.Verify(ctx, token)).
     Unwrap()
 ```
 
-See [`result/result.go`](result/result.go) for the full API: `OK`, `Err`,
-`From`, `FromNonZero`, `Unwrap`, `MustGet`, `OrElse`, `OrElseGet`, `Or`, `MapErr`,
-`MapErrf`, `WrapErr`, `Tap`, `TapErr`, `Map`, `FlatMap`, `Flatten`, `Then`, `Contains`.
+Full API: `OK`, `Err`, `From`, `FromNonZero`, `Unwrap`, `MustGet`, `MustErr`,
+`Expect`, `OrElse`, `OrElseGet`, `Or`, `MapErr`, `MapErrf`, `WrapErr`,
+`Recover`, `Tap`, `TapErr`, `Map`, `Map0`, `FlatMap`, `Then`, `Fold`,
+`ToOption` — plus `Successes`, `Failures` for slices, and
+`adt.Results.{Zip2, Zip3, Flatten, Contains, Sequence}` for the free
+functions that share names with their Option equivalents.
 
-
-## option
+### Option[T]
 
 `Option[T]` holds either a present, non-nil value or nothing — the
-replacement for a nil-pointer check or a hand-rolled `(T, bool)` "is this
-present" pair. `Some` refuses a nil value (nil and absent are the same
-concept), so JSON serializes as the value itself or `null` — never an
-ambiguous wrapper.
+replacement for a nil-pointer check or a hand-rolled `(T, bool)` pair.
+`Some` refuses a nil value (nil and absent are the same concept), so JSON
+serialises as the value itself or `null`.
 
 ```go
 var p *User
-name := option.From(p).
+name := adt.Opt(p).
     Map(func(u *User) string { return u.Name }).
     OrElse("")
 
-userOpt := option.FromMap(usersByID, 123)
-tokenOpt := option.FromNonZero(cfg.AuthToken)
+userOpt := adt.FromMap(usersByID, id)
+tokenOpt := adt.OptNonZero(cfg.AuthToken)
 ```
 
-See [`option/option.go`](option/option.go) for the full API: `Some`, `None`,
-`From`, `FromMap`, `FromOk`, `FromNonZero`, `FromSlice`, `FromResult`, `ToPtr`, `ToResult`, `ToResultGet`, `ToSlice`,
-`IsSome`, `IsNone`, `Unwrap`, `MustGet`, `Expect`, `OrElse`, `OrElseGet`, `Or`,
-`Filter`, `Tap`, `Fold`, `Map`, `FlatMap`, `Flatten`, `Then`, `Contains`.
+Full API: `Some`, `None`, `Opt`, `FromMap`, `FromOk`, `OptNonZero`,
+`FromSlice`, `FromResult`, `ToPtr`, `ToResult`, `ToResultGet`, `ToSlice`,
+`IsSome`, `IsNone`, `Unwrap`, `MustGet`, `Expect`, `OrElse`, `OrElseGet`,
+`Or`, `Filter`, `Tap`, `Fold`, `Map`, `Map0`, `FlatMap`, `Then` — plus
+`Somes` for slices, and
+`adt.Options.{Zip2, Zip3, Flatten, Contains, Sequence}`.
 
+**Naming note** — Go forbids a function and a type from sharing the same
+identifier, so a few names differ from what the old separate packages used:
 
+| Old | New | Reason |
+|---|---|---|
+| `option.From(val)` | `adt.Opt(val)` | Collision with `adt.From(val, err)` (Result) |
+| `option.FromNonZero(val)` | `adt.OptNonZero(val)` | Same collision |
+| `lazy.New(fn)` | `adt.Defer(fn)` | Type `Lazy` and func can't share `New` |
+| `dynamic.New(v)` | `adt.Dyn(v)` | Type `Any` and func can't share `New` |
+| `result.Void()` / `option.Void()` | `adt.Void` (var) | Single pre-created `Unit{}` value |
 
-## value
-
-`value` provides standalone helpers for pointer manipulation, value pipelines, error fallbacks, formatting, and ternaries.
+### Unit / Void
 
 ```go
-port := value.Deref(config.Port, 8080)
-name := value.Cond(user != nil, user.Name, "Guest")
-data := value.Must(os.ReadFile(path))
-secret, err := value.MapErr(fetchSecret(key), "get secret %q", key)
+return adt.OK(adt.Void)   // Result[Unit] carrying no value
+return adt.Some(adt.Void) // Option[Unit] carrying no value
 ```
 
-See [`value/value.go`](value/value.go) for the full API: `Must`, `WrapErr`, `MapErr`,
-`Fallback`, `FallbackGet`, `Cond`, `CondGet`, `Ptr`, `Deref`, `DerefGet`,
-`DerefZero`, `Tap`, `Pipe`, `Zero`, `IsZero`, `Coalesce`.
+### Lazy[T]
 
-
-## lazy
-
-`lazy` provides thread-safe, memoized zero-argument lazy computation (`Lazy[T]`)
-backed by `sync.OnceValue`, along with key-based 1-argument function
-memoization (`Memoize` / `MemoizeErr`).
+Thread-safe, memoized zero-argument lazy computation backed by `sync.OnceValue`.
 
 ```go
-// Deferred execution, evaluated at most once when Get() is called
-user := lazy.FromErr(func() (*User, error) { return fetchUser(id) })
+user := adt.DeferErr(func() (*User, error) { return fetchUser(id) })
 name := user.Get().Map(func(u *User) string { return u.Name }).OrElse("Guest")
-
-// Key-based memoization (thread-safe, executed at most once per key)
-cachedFetch := lazy.MemoizeErr(fetchUserByID)
 ```
 
-See [`lazy/lazy.go`](lazy/lazy.go) for the full API: `New`, `FromErr`,
-`Get`, `Map`, `FlatMap`, `ToOption`, `Memoize`, `MemoizeErr`.
+Full API: `Defer`, `DeferErr`, `Get`, `Map`, `FlatMap`, `ToOption`, `ToResult`,
+`ToResultGet`.
+
+### Any
+
+Type-erased value that remembers its concrete type for safe recovery via `As`.
+Types must be `Register`ed once (typically in `init`) before use.
+
+```go
+adt.Register[MyEvent]("my-event")
+a := adt.Dyn(MyEvent{…})
+e := adt.As[MyEvent](a) // Option[MyEvent]
+```
+
+### Memoize
+
+`adt.Memoize` and `adt.MemoizeErr` provide thread-safe per-key function
+memoization.
+
+---
+
+## fn
+
+`fn` consolidates stateless pure function utilities: value transforms, point-free
+composition, rotated-sequence algorithms, and memoization.
+
+```go
+port   := fn.Deref(config.Port, 8080)
+name   := fn.Cond(user != nil, user.Name, "Guest")
+data   := fn.Must(os.ReadFile(path))
+secret := fn.Pipe(rawKey, normalise)
+```
+
+**Value helpers:** `Must`, `WrapErr`, `MapErr`, `Fallback`, `FallbackGet`,
+`Cond`, `CondGet`, `Ptr`, `Deref`, `DerefGet`, `DerefZero`, `Tap`, `Pipe`,
+`Zero`, `IsZero`, `Clamp`, `Coalesce`.
+
+**Point-free composition:**
+
+```go
+var StdDev = fn.Fn2[float64, float64, float64](subtract).
+    Fork(fn.Identity[float64], mean).
+    Then(square).Then(mean).Then(sqrt)
+
+StdDev([]float64{2, 4, 4, 4, 5, 5, 7, 9}) // 2
+```
+
+`Fn[T,U]` and `Fn2[A,B,U]` are named function types; `Then` composes
+left-to-right; `Fork` is the array-language fork train
+(`combine.Fork(f, g)(x) = combine(f(x), g(x))`).
+
+**Rotated-sequence algorithms** — designed to align with `ds.RingBuffer.Segments()`:
+
+```go
+first, second := ring.Segments()
+n := fn.FindRotated(first, second, lastID, compare)
+first, second = fn.After(first, second, n)
+```
+
+Full API: `FindRotated`, `After`, `Before`, `FindRotatedWithPivot`,
+`AfterWithPivot`, `BeforeWithPivot`.
+
+**Memoize:** `Memoize`, `MemoizeErr` (also available on `adt`).
+
+---
 
 ## stream
 
 `Stream[T]` wraps a slice for eager, chainable pipeline operations.
-`Seq[T]` is its lazy, pull-based counterpart, wrapping the standard
-library's own `iter.Seq[T]` — the two share one implementation for every
-operation they both offer (`Filter`, `Map`, `TakeWhile`, ...), so a `Seq`
-pipeline genuinely short-circuits (`Filter().Map().First()` stops pulling
-the source the instant a match is found) while a `Stream` built from the
-same call stays eager, exactly as before. `Stream` additionally offers
-operations that need the whole sequence — `Reverse`, the `SortBy` family,
-`GroupBy`, `ToMap`, `Partition`, `Last`, `Len` — sound there specifically
-because a slice is always finite and already in memory; absent from
-`Seq`'s method set entirely, since an arbitrary `iter.Seq` might not be.
+`Seq[T]` is its lazy, pull-based counterpart wrapping `iter.Seq[T]` — the
+two share one implementation for every operation they both offer, so a `Seq`
+pipeline genuinely short-circuits while a `Stream` built from the same call
+stays eager.
 
 ```go
 totals := stream.Of(invoices).
     Filter(func(inv Invoice) bool { return inv.Status == Unpaid }).
     GroupBy(func(inv Invoice) string { return inv.ClientID })
 
-found, ok := stream.FromSeq(someGenerator).
-    Filter(isValid).
-    First(matchesQuery) // stops pulling the moment it finds one
+found, ok := stream.FromSeq(gen).Filter(isValid).First(matchesQuery)
 ```
 
-See [`stream/stream.go`](stream/stream.go) for `Stream`'s full API: `Of`
-(alias `FromSlice`), `Empty`, `OfMap`, `Filter`, `Each`, `Any`, `All`,
-`First`, `Last`, `Take`, `Skip`, `Reverse`, `Len`, `Collect`, `Map`,
-`FlatMap`, `Reduce`, `Fold`, `Scan`, `WindowFixed`, `WindowSliding`,
-`GroupBy`, `ToMap`, `DistinctBy`, `Distinct`, `Enumerate`, `SortBy`
-family, `Partition`, `Zip`, `Gather`. See [`stream/seq.go`](stream/seq.go)
-for `Seq`'s: `FromSeq`, `Filter`, `Map`, `FlatMap`, `Take`, `Skip`, `Each`,
-`Any`, `All`, `First`, `Reduce`, `Collect`, `Gather`, `MapMulti`,
-`FilterMap`, `TakeWhile`, `DropWhile`, `DistinctBy`, `DistinctSeq`,
-`EnumerateSeq`, `ZipSeq`.
+`Stream` additionally offers operations that need the whole sequence:
+`Reverse`, `SortBy` family, `GroupBy`, `ToMap`, `Partition`, `Last`, `Len`.
 
-[`stream/parallel.go`](stream/parallel.go) bridges `Stream` to `async.Pipe`
-(below) for the one thing this package deliberately doesn't do itself —
-run across goroutines. `Region` is the general form, taking a closure that
-can call anything `async.Pipe` offers; `Parallel` is sugar over `Region`
-for the single most common case.
+`Region`/`Parallel` bridge `Stream` to `async.Pipe` for bounded-concurrency
+stages without leaving the chain:
 
 ```go
-// Region: any Pipe operation, chained however the region needs.
-throttled := stream.Of(urls).
-    Region(func(p async.Pipe[string]) async.Pipe[string] {
-        return p.RateLimit(ctx, limiter)
-    }).
-    Collect()
-
-// Parallel: sugar over Region for bounded concurrency alone.
 fetched := stream.Of(urls).Parallel(8, fetchAndParse).Collect()
 ```
 
-`ToPipe`/`FromPipe` are the underlying, non-chained boundary crossing
-`Region` is built from, for callers who want to hold the `Pipe` across
-more than one statement.
+---
 
 ## async
 
-`Pipe[T]` wraps a channel for CSP-style pipeline composition — `Stream`'s
-counterpart for work that benefits from goroutines: worker pools, rate
-limiting, fan-out/fan-in, batching. Every stage is an explicitly named
-call; nothing infers an execution strategy from context.
+`Pipe[T]` wraps a channel for CSP-style pipeline composition — worker pools,
+rate limiting, fan-out/fan-in, batching.
 
 ```go
-total := async.From(urls).
-    Parallel(8, fetchAndParse).
-    Reduce(0, sum)
+total := async.From(urls).Parallel(8, fetchAndParse).Reduce(0, sum)
 ```
 
-See [`async/pipe.go`](async/pipe.go) for the full API: `From`, `Go`, `Map`,
-`Parallel`, `Buffer`, `Fork`, `Merge`, `RateLimit`, `Window`, `Enumerate`,
-`Ordered`, `Collect`, `Reduce`, `Each`, `Await`.
+**`Sync[T]`** — concurrent state behind a `sync.RWMutex`, with `Read`,
+`Write`, `Map`, and `Mutate`.
 
-## tacit
-
-`Fn[T, U]`/`Fn2[A, B, U]` are named function types for point-free (tacit)
-composition — building a new function entirely by combining existing
-ones, no named intermediate argument anywhere in the definition. Nothing
-here executes until the composed `Fn` is finally called with an
-argument, and nothing here is data or a pipeline — it exists purely to
-build the `func(T) U` values `stream.Map`/`async.Pipe.Parallel`/etc. take
-as arguments (a composed `Fn` is directly assignable wherever a plain
-`func(T) U` is expected, no conversion needed).
+**`Handle[D]`** — value type wrapping `*Sync[D]`, enabling the pimpl pattern:
+multiple struct types embed `Handle[D]` and expose different method sets over
+the same shared state, with no explicit interface declaration needed.
 
 ```go
-var StdDev = Subtract.Fork(Identity, Mean).Then(Square).Then(Mean).Then(Sqrt)
+type orgState struct { orgs map[uuid.UUID]Org }
 
-StdDev([]float64{2, 4, 4, 4, 5, 5, 7, 9}) // 2
+type InMemOrgs    struct{ async.Handle[orgState] }
+type InMemMembers struct{ async.Handle[orgState] } // same shared state
+
+h       := async.NewHandle(orgState{orgs: make(map[uuid.UUID]Org)})
+orgs    := InMemOrgs{h}
+members := InMemMembers{h}
 ```
 
-`Fork` is the array-language fork train: `combine.Fork(f, g)(x) =
-combine(f(x), g(x))` — applying two functions to the same argument and
-combining their results with a third (the receiver). `Subtract.Fork(Identity,
-Mean)` is `x - mean(x)` without naming `x` or the mean anywhere.
+**`Ctx[T]`** — couples any value with a `context.Context` for types that lack
+a native `WithContext` method (e.g. `*http.Client`). Types that do support
+`WithContext` (e.g. `*gorm.DB`) should use that directly.
 
-See [`tacit/tacit.go`](tacit/tacit.go) for the full API: `Then`, `Fork`,
-`Identity`.
+```go
+client := async.InCtx(ctx, httpClient)
+```
 
+---
+
+## ds
+
+`RingBuffer[T]` is a fixed-capacity circular buffer with O(1) push and
+snapshot access via `Segments()` (two sorted slices that together represent
+the logical sequence in order). `SyncRingBuffer[T]` adds a `sync.RWMutex`.
+
+```go
+ring := ds.GuardedRing[Event](1000)
+ring.Push(event)
+first, second := ring.Segments()
+```
+
+---
 
 ## Installation
 
 ```console
-go get github.com/azuiktech/kleisli-go
+go get github.com/azuiktech/kleisli-go@v0.15.0
 ```
 
 Requires Go 1.27 or later (generic method type parameters).
