@@ -354,3 +354,24 @@ func TestFromNonZero(t *testing.T) {
 
 
 
+
+func TestVoid(t *testing.T) {
+	r := Void()
+	if !r.IsOK() {
+		t.Fatal("Void() must be OK")
+	}
+}
+
+func TestMap0_OnOK(t *testing.T) {
+	got := OK(42).Map0(func() string { return "hello" })
+	if !got.IsOK() || got.MustGet() != "hello" {
+		t.Errorf("Map0 on OK = %v, want OK(hello)", got)
+	}
+}
+
+func TestMap0_OnErr(t *testing.T) {
+	got := Err[int](errBoom).Map0(func() string { return "hello" })
+	if !got.IsErr() || got.MustErr() != errBoom {
+		t.Errorf("Map0 on Err = %v, want Err(boom)", got)
+	}
+}

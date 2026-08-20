@@ -17,6 +17,7 @@ import (
 	"reflect"
 
 	"github.com/azuiktech/kleisli-go/result"
+	"github.com/azuiktech/kleisli-go/unit"
 )
 
 
@@ -45,6 +46,9 @@ func Some[T any](val T) Option[T] {
 
 // None represents absence.
 func None[T any]() Option[T] { return Option[T]{} }
+
+// Void returns a present Option carrying no value.
+func Void() Option[unit.Unit] { return Some(unit.Unit{}) }
 
 // From converts a possibly-nil value into an Option: nil becomes None,
 // anything else becomes Some.
@@ -281,6 +285,15 @@ func (o Option[T]) Map[U any](fn func(T) U) Option[U] {
 		return None[U]()
 	}
 	return Some(fn(o.val))
+}
+
+// Map0 maps the Option to a new type by calling fn with no arguments,
+// ignoring the current value. Absence propagates unchanged.
+func (o Option[T]) Map0[U any](fn func() U) Option[U] {
+	if !o.ok {
+		return None[U]()
+	}
+	return Some(fn())
 }
 
 // FlatMap chains an Option-returning operation. Absence short-circuits: a

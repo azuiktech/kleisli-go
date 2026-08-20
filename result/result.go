@@ -17,6 +17,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/azuiktech/kleisli-go/unit"
 )
 
 
@@ -40,6 +42,9 @@ func Err[T any](err error) Result[T] {
 	}
 	return Result[T]{err: err}
 }
+
+// Void returns a successful Result carrying no value.
+func Void() Result[unit.Unit] { return OK(unit.Unit{}) }
 
 // From converts a Go-idiomatic (val, error) pair.
 func From[T any](val T, err error) Result[T] {
@@ -262,6 +267,15 @@ func (r Result[T]) Map[U any](fn func(T) U) Result[U] {
 		return Err[U](r.err)
 	}
 	return OK(fn(r.val))
+}
+
+// Map0 maps the Result to a new type by calling fn with no arguments,
+// ignoring the current value. Errors propagate unchanged.
+func (r Result[T]) Map0[U any](fn func() U) Result[U] {
+	if r.err != nil {
+		return Err[U](r.err)
+	}
+	return OK(fn())
 }
 
 // FlatMap chains a Result-returning operation.
