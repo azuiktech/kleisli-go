@@ -1,7 +1,7 @@
 package examples
 
 import (
-	"github.com/azuiktech/kleisli-go/value"
+	"github.com/azuiktech/kleisli-go/fn"
 )
 
 // ============================================================================
@@ -10,7 +10,7 @@ import (
 // Mini Problem Definition:
 // 1. Construct partial patch objects with optional pointer fields (`*string`, `*int`, `*bool`)
 //    without creating temporary local variables for addresses.
-// 2. Apply patch fields onto an existing entity safely using `value.Deref` and `value.Ptr`.
+// 2. Apply patch fields onto an existing entity safely using `fn.Deref` and `fn.Ptr`.
 
 type UserEntity struct {
 	ID          string
@@ -25,11 +25,11 @@ type UserPatch struct {
 	Active      *bool
 }
 
-// BuildDefaultPatch creates a patch object inline using value.Ptr.
+// BuildDefaultPatch creates a patch object inline using fn.Ptr.
 func BuildDefaultPatch(role string) UserPatch {
 	return UserPatch{
-		Role:   value.Ptr(role),
-		Active: value.Ptr(true),
+		Role:   fn.Ptr(role),
+		Active: fn.Ptr(true),
 	}
 }
 
@@ -37,8 +37,8 @@ func BuildDefaultPatch(role string) UserPatch {
 func ApplyUserPatch(entity UserEntity, patch UserPatch) UserEntity {
 	return UserEntity{
 		ID:          entity.ID,
-		DisplayName: value.Deref(patch.DisplayName, entity.DisplayName),
-		Role:        value.Deref(patch.Role, entity.Role),
-		Active:      value.Deref(patch.Active, entity.Active),
+		DisplayName: fn.Deref(patch.DisplayName, entity.DisplayName),
+		Role:        fn.Deref(patch.Role, entity.Role),
+		Active:      fn.Deref(patch.Active, entity.Active),
 	}
 }

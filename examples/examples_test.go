@@ -5,9 +5,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/azuiktech/kleisli-go/adt"
 	"github.com/azuiktech/kleisli-go/examples"
-	"github.com/azuiktech/kleisli-go/option"
-	"github.com/azuiktech/kleisli-go/result"
 )
 
 func TestStudentRanker(t *testing.T) {
@@ -72,7 +71,7 @@ func TestGraphReachability(t *testing.T) {
 }
 
 func TestPromptTemplateLoader(t *testing.T) {
-	promptRes := examples.BuildInstructionPrompt(option.None[string](), "Science", "Researcher")
+	promptRes := examples.BuildInstructionPrompt(adt.None[string](), "Science", "Researcher")
 	if promptRes.IsErr() {
 		t.Fatalf("prompt build failed: %v", promptRes.MustErr())
 	}
@@ -146,13 +145,13 @@ func TestMemoizedCache(t *testing.T) {
 }
 
 func TestTemplateErrorGuard(t *testing.T) {
-	okRes := result.OK("success_data")
+	okRes := adt.OK("success_data")
 	stateOK := examples.RenderViewState(okRes)
 	if stateOK.HasError || stateOK.Data != "success_data" {
 		t.Errorf("unexpected stateOK: %+v", stateOK)
 	}
 
-	errRes := result.Err[string](errors.New("db timeout"))
+	errRes := adt.Err[string](errors.New("db timeout"))
 	stateErr := examples.RenderViewState(errRes)
 	if !stateErr.HasError || stateErr.ErrMsg != "db timeout" {
 		t.Errorf("unexpected stateErr: %+v", stateErr)

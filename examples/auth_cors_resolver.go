@@ -5,11 +5,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/azuiktech/kleisli-go/option"
-	"github.com/azuiktech/kleisli-go/result"
+	"github.com/azuiktech/kleisli-go/adt"
 	"github.com/azuiktech/kleisli-go/stream"
 )
-
 
 // ============================================================================
 // PROBLEM: Bearer Token Parser & CORS Policy Evaluator (Security / HTTP)
@@ -18,11 +16,11 @@ import (
 // 1. Safely extract an optional `Authorization: Bearer <token>` header without string splits.
 // 2. Validate the request's `Origin` header against a whitelist supporting exact domain
 //    matches and wildcard domain patterns (e.g. `*.acme.com` or `*`).
-// 3. Return a `result.Result[string]` containing the token if valid, or a domain error.
+// 3. Return a `adt.Result[string]` containing the token if valid, or a domain error.
 
-// ExtractBearerToken extracts an optional Bearer token using option.FromOk.
-func ExtractBearerToken(r *http.Request) option.Option[string] {
-	return option.FromOk(strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "))
+// ExtractBearerToken extracts an optional Bearer token using adt.FromOk.
+func ExtractBearerToken(r *http.Request) adt.Option[string] {
+	return adt.FromOk(strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "))
 }
 
 // IsOriginAllowed checks if an origin is permitted using declarative stream matching.
@@ -45,12 +43,12 @@ func IsOriginAllowed(allowedOrigins []string, requestOrigin string) bool {
 }
 
 // ResolveAuthenticatedSession combines token extraction, CORS validation, and token verification.
-func ResolveAuthenticatedSession(r *http.Request, allowedOrigins []string) result.Result[string] {
+func ResolveAuthenticatedSession(r *http.Request, allowedOrigins []string) adt.Result[string] {
 	requestOrigin := r.Header.Get("Origin")
 
 	// Step 1: Validate CORS Origin Policy
 	if !IsOriginAllowed(allowedOrigins, requestOrigin) {
-		return result.Err[string](errors.New("CORS policy error: origin forbidden"))
+		return adt.Err[string](errors.New("CORS policy error: origin forbidden"))
 	}
 
 	// Step 2: Extract Bearer token as Option[string] and convert to Result[string]
@@ -58,10 +56,10 @@ func ResolveAuthenticatedSession(r *http.Request, allowedOrigins []string) resul
 		ToResultGet(func() error {
 			return errors.New("unauthorized: missing or malformed Bearer token")
 		}).
-		FlatMap(func(token string) result.Result[string] {
+		FlatMap(func(token string) adt.Result[string] {
 			if token == "revoked-token" {
-				return result.Err[string](errors.New("unauthorized: token revoked"))
+				return adt.Err[string](errors.New("unauthorized: token revoked"))
 			}
-			return result.OK(token)
+			return adt.OK(token)
 		})
 }

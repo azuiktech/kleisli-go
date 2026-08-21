@@ -5,7 +5,7 @@ import (
 	"iter"
 	"slices"
 
-	"github.com/azuiktech/kleisli-go/option"
+	"github.com/azuiktech/kleisli-go/adt"
 )
 
 // Seq wraps an iter.Seq[T] — Stream's lazy, pull-based counterpart, safe
@@ -31,7 +31,7 @@ func FromSeq[T any](seq iter.Seq[T]) Seq[T] { return Seq[T]{seq: seq} }
 
 // SeqOfOption lifts an Option into a single-element or empty Seq: Some(v)
 // yields v once, None yields nothing.
-func SeqOfOption[T any](o option.Option[T]) Seq[T] {
+func SeqOfOption[T any](o adt.Option[T]) Seq[T] {
 	return FromSeq(slices.Values(o.ToSlice()))
 }
 
@@ -177,13 +177,13 @@ func (s Seq[T]) All(fn func(T) bool) bool {
 
 // First returns Some(first element satisfying fn), or None —
 // short-circuits, never pulling past the match.
-func (s Seq[T]) First(fn func(T) bool) option.Option[T] {
+func (s Seq[T]) First(fn func(T) bool) adt.Option[T] {
 	for v := range s.seq {
 		if fn(v) {
-			return option.Some(v)
+			return adt.Some(v)
 		}
 	}
-	return option.None[T]()
+	return adt.None[T]()
 }
 
 // Reduce folds every element into an accumulator of type U.
@@ -298,7 +298,7 @@ func FlattenSeq[T any](s Seq[[]T]) Seq[T] {
 // MinBy returns the element with the smallest key fn extracts, draining the
 // Seq fully. Returns None if the Seq is empty. When multiple elements share
 // the minimum key the first one wins.
-func (s Seq[T]) MinBy[K cmp.Ordered](fn func(T) K) option.Option[T] {
+func (s Seq[T]) MinBy[K cmp.Ordered](fn func(T) K) adt.Option[T] {
 	var best T
 	var bestKey K
 	found := false
@@ -309,15 +309,15 @@ func (s Seq[T]) MinBy[K cmp.Ordered](fn func(T) K) option.Option[T] {
 		}
 	}
 	if !found {
-		return option.None[T]()
+		return adt.None[T]()
 	}
-	return option.Some(best)
+	return adt.Some(best)
 }
 
 // MaxBy returns the element with the largest key fn extracts, draining the
 // Seq fully. Returns None if the Seq is empty. When multiple elements share
 // the maximum key the first one wins.
-func (s Seq[T]) MaxBy[K cmp.Ordered](fn func(T) K) option.Option[T] {
+func (s Seq[T]) MaxBy[K cmp.Ordered](fn func(T) K) adt.Option[T] {
 	var best T
 	var bestKey K
 	found := false
@@ -328,9 +328,9 @@ func (s Seq[T]) MaxBy[K cmp.Ordered](fn func(T) K) option.Option[T] {
 		}
 	}
 	if !found {
-		return option.None[T]()
+		return adt.None[T]()
 	}
-	return option.Some(best)
+	return adt.Some(best)
 }
 
 // ZipSeq pairs elements from two Seqs positionally, stopping at the

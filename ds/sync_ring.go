@@ -5,7 +5,7 @@ import (
 	"slices"
 
 	"github.com/azuiktech/kleisli-go/async"
-	"github.com/azuiktech/kleisli-go/option"
+	"github.com/azuiktech/kleisli-go/adt"
 )
 
 // SyncRingBuffer is a thread-safe RingBuffer backed by async.Sync.
@@ -23,17 +23,17 @@ func (s *SyncRingBuffer[T]) Push(v T) {
 	s.Write(func(r *RingBuffer[T]) { r.Push(v) })
 }
 
-func (s *SyncRingBuffer[T]) Pop() (out option.Option[T]) {
+func (s *SyncRingBuffer[T]) Pop() (out adt.Option[T]) {
 	s.Write(func(r *RingBuffer[T]) { out = r.Pop() })
 	return
 }
 
-func (s *SyncRingBuffer[T]) Peek() (out option.Option[T]) {
+func (s *SyncRingBuffer[T]) Peek() (out adt.Option[T]) {
 	s.Read(func(r *RingBuffer[T]) { out = r.Peek() })
 	return
 }
 
-func (s *SyncRingBuffer[T]) At(i int) (out option.Option[T]) {
+func (s *SyncRingBuffer[T]) At(i int) (out adt.Option[T]) {
 	s.Read(func(r *RingBuffer[T]) { out = r.At(i) })
 	return
 }

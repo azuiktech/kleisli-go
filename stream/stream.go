@@ -24,7 +24,7 @@ import (
 	"cmp"
 	"slices"
 
-	"github.com/azuiktech/kleisli-go/option"
+	"github.com/azuiktech/kleisli-go/adt"
 )
 
 // Stream wraps a slice for pipeline operations. Every operation it
@@ -45,7 +45,7 @@ func FromSlice[T any](items []T) Stream[T] { return Of(items) }
 
 // OfOption lifts an Option into a single-element or empty Stream: Some(v)
 // becomes Stream{v}, None becomes an empty Stream.
-func OfOption[T any](o option.Option[T]) Stream[T] { return Of(o.ToSlice()) }
+func OfOption[T any](o adt.Option[T]) Stream[T] { return Of(o.ToSlice()) }
 
 // Empty returns a Stream with no elements.
 func Empty[T any]() Stream[T] { return Stream[T]{} }
@@ -95,26 +95,26 @@ func (s Stream[T]) All(fn func(T) bool) bool {
 }
 
 // First returns Some(first element satisfying fn), or None.
-func (s Stream[T]) First(fn func(T) bool) option.Option[T] {
+func (s Stream[T]) First(fn func(T) bool) adt.Option[T] {
 	for _, v := range s.items {
 		if fn(v) {
-			return option.Some(v)
+			return adt.Some(v)
 		}
 	}
-	return option.None[T]()
+	return adt.None[T]()
 }
 
 // Last returns Some(last element satisfying fn), or None. Scans backward so
 // a match near the end is found without touching the rest of the slice —
 // O(1) best case, matching Rust's DoubleEndedIterator::rfind rather than a
 // forward scan that must always reach the end.
-func (s Stream[T]) Last(fn func(T) bool) option.Option[T] {
+func (s Stream[T]) Last(fn func(T) bool) adt.Option[T] {
 	for i := len(s.items) - 1; i >= 0; i-- {
 		if fn(s.items[i]) {
-			return option.Some(s.items[i])
+			return adt.Some(s.items[i])
 		}
 	}
-	return option.None[T]()
+	return adt.None[T]()
 }
 
 // Take returns a Stream containing at most n leading elements.
@@ -553,9 +553,9 @@ func Flatten[T any](s Stream[[]T]) Stream[T] {
 // linear pass. Returns None for an empty Stream. When multiple elements
 // share the minimum key the first one wins — matching SortBy's stable-sort
 // semantics.
-func (s Stream[T]) MinBy[K cmp.Ordered](fn func(T) K) option.Option[T] {
+func (s Stream[T]) MinBy[K cmp.Ordered](fn func(T) K) adt.Option[T] {
 	if len(s.items) == 0 {
-		return option.None[T]()
+		return adt.None[T]()
 	}
 	best, bestKey := s.items[0], fn(s.items[0])
 	for _, v := range s.items[1:] {
@@ -563,15 +563,15 @@ func (s Stream[T]) MinBy[K cmp.Ordered](fn func(T) K) option.Option[T] {
 			best, bestKey = v, k
 		}
 	}
-	return option.Some(best)
+	return adt.Some(best)
 }
 
 // MaxBy returns the element with the largest key fn extracts, in a single
 // linear pass. Returns None for an empty Stream. When multiple elements
 // share the maximum key the first one wins.
-func (s Stream[T]) MaxBy[K cmp.Ordered](fn func(T) K) option.Option[T] {
+func (s Stream[T]) MaxBy[K cmp.Ordered](fn func(T) K) adt.Option[T] {
 	if len(s.items) == 0 {
-		return option.None[T]()
+		return adt.None[T]()
 	}
 	best, bestKey := s.items[0], fn(s.items[0])
 	for _, v := range s.items[1:] {
@@ -579,5 +579,5 @@ func (s Stream[T]) MaxBy[K cmp.Ordered](fn func(T) K) option.Option[T] {
 			best, bestKey = v, k
 		}
 	}
-	return option.Some(best)
+	return adt.Some(best)
 }

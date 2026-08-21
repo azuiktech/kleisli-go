@@ -5,7 +5,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/azuiktech/kleisli-go/option"
+	"github.com/azuiktech/kleisli-go/adt"
 	"github.com/azuiktech/kleisli-go/stream"
 )
 
@@ -33,7 +33,7 @@ type StudentSummary struct {
 }
 
 // SelectMostConsistentTopStudent executes the algorithmic pipeline using kleisli-go streams.
-func SelectMostConsistentTopStudent(students []Student, minAssignments int, minAvg float64, topK int) option.Option[StudentSummary] {
+func SelectMostConsistentTopStudent(students []Student, minAssignments int, minAvg float64, topK int) adt.Option[StudentSummary] {
 	// Step 1: Filter and map to StudentSummary
 	summaries := stream.Of(students).
 		Filter(func(s Student) bool {
@@ -56,7 +56,7 @@ func SelectMostConsistentTopStudent(students []Student, minAssignments int, minA
 		Collect()
 
 	if len(summaries) == 0 {
-		return option.None[StudentSummary]()
+		return adt.None[StudentSummary]()
 	}
 
 	// Step 2: Sort descending by average score
@@ -73,7 +73,7 @@ func SelectMostConsistentTopStudent(students []Student, minAssignments int, minA
 	})
 
 	// Return the most consistent top candidate as Option[StudentSummary]
-	return option.FromOk(topCandidates[0], true)
+	return adt.FromOk(topCandidates[0], true)
 }
 
 func computeAverage(scores []float64) float64 {

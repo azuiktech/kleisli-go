@@ -4,7 +4,7 @@ import (
 	"iter"
 	"slices"
 
-	"github.com/azuiktech/kleisli-go/option"
+	"github.com/azuiktech/kleisli-go/adt"
 )
 
 // RingBuffer is a fixed-capacity circular buffer. Push overwrites the oldest
@@ -36,31 +36,31 @@ func (r *RingBuffer[T]) Push(v T) {
 }
 
 // Pop removes and returns the oldest element. Returns None when empty.
-func (r *RingBuffer[T]) Pop() option.Option[T] {
+func (r *RingBuffer[T]) Pop() adt.Option[T] {
 	if r.size == 0 {
-		return option.None[T]()
+		return adt.None[T]()
 	}
 	v := r.data[r.head]
 	r.head = (r.head + 1) % len(r.data)
 	r.size--
-	return option.Some(v)
+	return adt.Some(v)
 }
 
 // Peek returns the oldest element without removing it. Returns None when empty.
-func (r *RingBuffer[T]) Peek() option.Option[T] {
+func (r *RingBuffer[T]) Peek() adt.Option[T] {
 	if r.size == 0 {
-		return option.None[T]()
+		return adt.None[T]()
 	}
-	return option.Some(r.data[r.head])
+	return adt.Some(r.data[r.head])
 }
 
 // At returns the element at logical index i (0 = oldest). Returns None when
 // i is out of range.
-func (r *RingBuffer[T]) At(i int) option.Option[T] {
+func (r *RingBuffer[T]) At(i int) adt.Option[T] {
 	if i < 0 || i >= r.size {
-		return option.None[T]()
+		return adt.None[T]()
 	}
-	return option.Some(r.data[(r.head+i)%len(r.data)])
+	return adt.Some(r.data[(r.head+i)%len(r.data)])
 }
 
 // Len returns the number of elements currently in the buffer.

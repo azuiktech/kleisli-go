@@ -3,7 +3,7 @@ package examples
 import (
 	"errors"
 
-	"github.com/azuiktech/kleisli-go/lazy"
+	"github.com/azuiktech/kleisli-go/adt"
 )
 
 
@@ -19,7 +19,7 @@ import (
 func MemoizedFibonacci() func(int) uint64 {
 	var fib func(n int) uint64
 
-	fib = lazy.Memoize(func(n int) uint64 {
+	fib = adt.Memoize(func(n int) uint64 {
 		if n <= 1 {
 			return uint64(n)
 		}
@@ -31,7 +31,7 @@ func MemoizedFibonacci() func(int) uint64 {
 
 // MemoizedFactorizer creates a thread-safe memoized fallible prime factorizer.
 func MemoizedFactorizer() func(int) ([]int, error) {
-	return lazy.MemoizeErr(func(n int) ([]int, error) {
+	return adt.MemoizeErr(func(n int) ([]int, error) {
 		if n <= 1 {
 			return nil, errors.New("cannot factorize numbers <= 1")
 		}

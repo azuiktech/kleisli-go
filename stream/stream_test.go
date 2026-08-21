@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/azuiktech/kleisli-go/option"
+	"github.com/azuiktech/kleisli-go/adt"
 )
 
 func TestLast(t *testing.T) {
@@ -376,10 +376,10 @@ func TestToSeq_RoundTrips(t *testing.T) {
 }
 
 func TestOfOption(t *testing.T) {
-	if got := OfOption(option.Some(42)).Collect(); !reflect.DeepEqual(got, []int{42}) {
+	if got := OfOption(adt.Some(42)).Collect(); !reflect.DeepEqual(got, []int{42}) {
 		t.Errorf("OfOption(Some) = %v, want [42]", got)
 	}
-	if got := OfOption(option.None[int]()).Collect(); len(got) != 0 {
+	if got := OfOption(adt.None[int]()).Collect(); len(got) != 0 {
 		t.Errorf("OfOption(None) = %v, want []", got)
 	}
 }

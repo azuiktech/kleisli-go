@@ -1,7 +1,7 @@
 package examples
 
 import (
-	"github.com/azuiktech/kleisli-go/result"
+	"github.com/azuiktech/kleisli-go/adt"
 )
 
 
@@ -24,7 +24,7 @@ type ViewState struct {
 }
 
 // RenderViewState transforms a fallible Result[string] into a safe ViewState for templates.
-func RenderViewState(res result.Result[string]) ViewState {
+func RenderViewState(res adt.Result[string]) ViewState {
 	if res.IsErr() {
 		return ViewState{
 			HasError: true,

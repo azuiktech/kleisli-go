@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/azuiktech/kleisli-go/option"
+	"github.com/azuiktech/kleisli-go/adt"
 )
 
 func TestFromSeq_Collect_RoundTrips(t *testing.T) {
@@ -290,10 +290,10 @@ func TestToStream_Materializes(t *testing.T) {
 }
 
 func TestSeqOfOption(t *testing.T) {
-	if got := SeqOfOption(option.Some(7)).Collect(); !reflect.DeepEqual(got, []int{7}) {
+	if got := SeqOfOption(adt.Some(7)).Collect(); !reflect.DeepEqual(got, []int{7}) {
 		t.Errorf("SeqOfOption(Some) = %v, want [7]", got)
 	}
-	if got := SeqOfOption(option.None[int]()).Collect(); len(got) != 0 {
+	if got := SeqOfOption(adt.None[int]()).Collect(); len(got) != 0 {
 		t.Errorf("SeqOfOption(None) = %v, want []", got)
 	}
 }
