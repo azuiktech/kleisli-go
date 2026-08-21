@@ -11,7 +11,8 @@
 package dynamic
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
+	"encoding/json/jsontext"
 	"fmt"
 	"reflect"
 
@@ -99,8 +100,8 @@ func (d *Any) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	var wire struct {
-		Type  string          `json:"@type"`
-		Value json.RawMessage `json:"value"`
+		Type  string         `json:"@type"`
+		Value jsontext.Value `json:"value"`
 	}
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return err

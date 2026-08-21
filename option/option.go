@@ -12,13 +12,14 @@
 package option
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"reflect"
 
 	"github.com/azuiktech/kleisli-go/result"
 	"github.com/azuiktech/kleisli-go/unit"
 )
+
 
 
 // Option holds either a present, non-nil value of type T or nothing. The
