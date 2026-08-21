@@ -13,13 +13,16 @@
 package result
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/azuiktech/kleisli-go/unit"
 )
+
+
 
 
 // Result holds either a success value of type T or an error. The two are
@@ -74,19 +77,22 @@ func FromNonZero[T comparable](val T, err error) Result[T] {
 // (e.g. Result[*Invoice] holding "no match") still round-trips as
 // {"ok":null} — distinct from {"err":"..."} — rather than being silently
 // omitted by omitempty.
-type wireResult[T any] struct {
-	Ok  *T      `json:"ok,omitempty"`
-	Err *string `json:"err,omitempty"`
+type wireOK[T any] struct {
+	Ok *T `json:"ok"`
+}
+
+type wireErr struct {
+	Err string `json:"err"`
 }
 
 // MarshalJSON writes the Result as {"ok":<val>} or {"err":"<message>"}.
 func (r Result[T]) MarshalJSON() ([]byte, error) {
 	if r.err != nil {
-		msg := r.err.Error()
-		return json.Marshal(wireResult[T]{Err: &msg})
+		return json.Marshal(wireErr{Err: r.err.Error()})
 	}
-	return json.Marshal(wireResult[T]{Ok: &r.val})
+	return json.Marshal(wireOK[T]{Ok: &r.val})
 }
+
 
 // UnmarshalJSON reads back the shape MarshalJSON writes. The reconstructed
 // error is a plain errors.New(message) — the original error's identity and
@@ -99,7 +105,7 @@ func (r Result[T]) MarshalJSON() ([]byte, error) {
 // apart from "ok absent". Unmarshaling into a raw key map first, and
 // checking key presence directly, avoids that collapse.
 func (r *Result[T]) UnmarshalJSON(data []byte) error {
-	var keys map[string]json.RawMessage
+	var keys map[string]jsontext.Value
 	if err := json.Unmarshal(data, &keys); err != nil {
 		return err
 	}
