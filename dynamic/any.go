@@ -29,60 +29,43 @@ var (
 // registry has no locking, the same assumption gob.Register and protobuf's
 // registry make. name is entirely the caller's choice, never derived from
 // T itself, the same way a protobuf message's type URL comes from its
-// package + name declaration.
+// .proto package+name rather than its generated Go type. Register panics
+// on a duplicate name, so a collision fails at init time rather than
+// resolving to the wrong type at some later Unmarshal.
 func Register[T any](name string) {
 	if _, exists := nameToType[name]; exists {
 		panic(fmt.Sprintf("dynamic: type name %q already registered", name))
 	}
-	var zero T
-	t := reflect.TypeOf(zero)
-	if t == nil {
-		panic("dynamic.Register: cannot register nil interface type")
-	}
+	t := reflect.TypeOf(*new(T))
 	typeToName[t] = name
 	nameToType[name] = t
 }
 
-
-// Any holds a type-erased value of type T alongside the name it was
-// Registered under. The zero value is empty (name "", holds no value).
+// Any holds a value of Registered type, type-erased. Use New to construct;
+// never use the zero value directly (though the zero value does happen to
+// hold no value, the same way None[T]() does for Option).
 type Any struct {
 	name  string
 	value any
 }
 
-// New constructs an Any from value — panics if value's concrete type was
-// not Registered first. Calling New(nil) is safe (returns the empty Any).
-func New(value any) Any {
-	if value == nil {
+// New boxes v, identified by its own runtime type. Panics if that type was
+// never Registered — the same fail-fast stance Register itself takes, and
+// the same shape as option.Some panicking on a nil value: a programmer
+// error, not a condition to recover from.
+func New(v any) Any {
+	if v == nil {
 		return Any{}
 	}
-	t := reflect.TypeOf(value)
-	name, ok := typeToName[t]
+	name, ok := typeToName[reflect.TypeOf(v)]
 	if !ok {
-		panic(fmt.Sprintf("dynamic.New: type %v is not registered — call Register first", t))
+		panic(fmt.Sprintf("dynamic: type %T not registered", v))
 	}
-	return Any{name: name, value: value}
+	return Any{name: name, value: v}
 }
 
-// Name returns the name value's concrete type was Registered under, or ""
-// if empty.
-func (d Any) Name() string { return d.name }
-
-// Value returns the underlying erased value, or nil if empty.
+// Value returns the boxed value, or nil if none was ever set.
 func (d Any) Value() any { return d.value }
-
-// IsZero reports whether d is empty.
-func (d Any) IsZero() bool { return d.name == "" && d.value == nil }
-
-// Get extracts the underlying value as T — returns option.Some(v) if d's
-// held value has type T, option.None if empty or if held value is not a T.
-func Get[T any](d Any) option.Option[T] {
-	if v, ok := d.value.(T); ok {
-		return option.Some(v)
-	}
-	return option.None[T]()
-}
 
 // As extracts the boxed value as T, returning None if the assertion fails or
 // d holds no value — the Option-native alternative to a raw type assertion on
@@ -92,24 +75,24 @@ func As[T any](d Any) option.Option[T] {
 	return option.FromOk(v, ok)
 }
 
-
+// wireAny is Any's JSON wire shape: {"@type":"<name>","value":<payload>}.
 type wireAny struct {
 	Type  string `json:"@type"`
 	Value any    `json:"value"`
 }
 
-// MarshalJSON writes the Any as {"@type":<name>,"value":<value>}. The zero
-// value writes as null.
+// MarshalJSON writes null for a zero-value Any (no value ever boxed), or
+// {"@type":...,"value":...} otherwise.
 func (d Any) MarshalJSON() ([]byte, error) {
-	if d.IsZero() {
+	if d.value == nil {
 		return []byte("null"), nil
 	}
 	return json.Marshal(wireAny{Type: d.name, Value: d.value})
 }
 
-// UnmarshalJSON reads back the shape MarshalJSON writes — looks up @type in
-// the registry, unmarshals value into a fresh T, and stores it. Errs (does
-// not panic, matching UnmarshalJSON convention across the standard library,
+// UnmarshalJSON reads null as a zero-value Any, and
+// {"@type":...,"value":...} as a boxed value of the type "@type" names —
+// an exact lookup, erroring (not panicking — this is untrusted input,
 // unlike New) if that name was never Registered.
 func (d *Any) UnmarshalJSON(data []byte) error {
 	if string(data) == "null" {
