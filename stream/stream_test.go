@@ -394,3 +394,48 @@ func TestMinBy_TiesKeepFirst(t *testing.T) {
 		t.Errorf("MinBy() tie = %q, want %q (first element must win)", got.Name, "a")
 	}
 }
+
+func TestTake_PanicsOnNegative(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Take(-1) should panic")
+		}
+	}()
+	Of([]int{1, 2, 3}).Take(-1)
+}
+
+func TestSkip_PanicsOnNegative(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Skip(-1) should panic")
+		}
+	}()
+	Of([]int{1, 2, 3}).Skip(-1)
+}
+
+func TestWindowFixed_PanicsOnZero(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("WindowFixed(0) should panic")
+		}
+	}()
+	WindowFixed[int](0)
+}
+
+func TestWindowSliding_PanicsOnZero(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("WindowSliding(0) should panic")
+		}
+	}()
+	WindowSliding[int](0)
+}
+
+func TestClone_IsIndependentOfSource(t *testing.T) {
+	src := []int{1, 2, 3}
+	s := Of(src).Clone()
+	src[0] = 99
+	if s.Collect()[0] != 1 {
+		t.Error("Clone() must not share backing array with source")
+	}
+}

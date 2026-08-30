@@ -20,6 +20,8 @@ import (
 	"sync"
 
 	"golang.org/x/time/rate"
+
+	"github.com/azuiktech/kleisli-go/adt"
 )
 
 // Pipe wraps a channel for CSP-style pipeline composition — the
@@ -117,8 +119,11 @@ func (p Pipe[T]) Map[U any](fn func(T) U) Pipe[U] {
 // Parallel spawns n worker goroutines pulling from p and applying fn
 // concurrently — bounded fan-out. Output arrival order is completion
 // order, not input order; Enumerate before, Ordered after, if input
-// order must survive.
+// order must survive. Panics if n < 1.
 func (p Pipe[T]) Parallel[U any](n int, fn func(T) U) Pipe[U] {
+	if n < 1 {
+		panic("async: Parallel worker count must be at least 1")
+	}
 	out := make(chan U)
 	var wg sync.WaitGroup
 	wg.Add(n)
@@ -169,6 +174,38 @@ func (p Pipe[T]) Fork(n int) []Pipe[T] {
 	pipes := make([]Pipe[T], n)
 	for i := range n {
 		outs[i] = make(chan T)
+		pipes[i] = Pipe[T]{ch: outs[i], ctx: p.ctx}
+	}
+	go func() {
+		defer func() {
+			for _, out := range outs {
+				close(out)
+			}
+		}()
+		for item := range p.ch {
+			for _, out := range outs {
+				select {
+				case out <- item:
+				case <-p.ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+	return pipes
+}
+
+// ForkBuffered is Fork with a per-branch channel buffer of bufPerBranch
+// items. A slow branch can fall up to bufPerBranch items behind the
+// shared pump without stalling its siblings. Panics if bufPerBranch < 0.
+func ForkBuffered[T any](p Pipe[T], n, bufPerBranch int) []Pipe[T] {
+	if bufPerBranch < 0 {
+		panic("async: ForkBuffered buffer size must be non-negative")
+	}
+	outs := make([]chan T, n)
+	pipes := make([]Pipe[T], n)
+	for i := range n {
+		outs[i] = make(chan T, bufPerBranch)
 		pipes[i] = Pipe[T]{ch: outs[i], ctx: p.ctx}
 	}
 	go func() {
@@ -248,8 +285,11 @@ func (p Pipe[T]) RateLimit(ctx context.Context, lim *rate.Limiter) Pipe[T] {
 // the whole source is exhausted. The trailing chunk may be shorter than
 // n. A free function: Pipe[T] -> Pipe[[]T] hits the same "instantiation
 // cycle" compiler limit stream.Enumerate's own doc already flags for a
-// method of this shape.
+// method of this shape. Panics if n < 1.
 func Window[T any](p Pipe[T], n int) Pipe[[]T] {
+	if n < 1 {
+		panic("async: Window size must be at least 1")
+	}
 	out := make(chan []T)
 	go func() {
 		defer close(out)
@@ -303,12 +343,16 @@ func Enumerate[T any](p Pipe[T]) Pipe[Indexed[T]] {
 	return Pipe[Indexed[T]]{ch: out, ctx: p.ctx}
 }
 
-// Ordered buffers Indexed items until they can be emitted strictly in
+// OrderedN buffers Indexed items until they can be emitted strictly in
 // ascending Index order — Enumerate's pair, undoing whatever reordering
-// a concurrent stage in between introduced. One badly-delayed item
-// stalls everything queued behind it — the standard cost of restoring
-// order after concurrent work, not a bug.
-func Ordered[T any](p Pipe[Indexed[T]]) Pipe[T] {
+// a concurrent stage in between introduced. maxPending caps the reorder
+// buffer: if more than maxPending items are waiting for a missing
+// predecessor, the pipeline stops to avoid unbounded memory growth.
+// Pass 0 for no limit (same semantics as Ordered). Panics if maxPending < 0.
+func OrderedN[T any](p Pipe[Indexed[T]], maxPending int) Pipe[T] {
+	if maxPending < 0 {
+		panic("async: OrderedN maxPending must be non-negative")
+	}
 	out := make(chan T)
 	go func() {
 		defer close(out)
@@ -316,6 +360,9 @@ func Ordered[T any](p Pipe[Indexed[T]]) Pipe[T] {
 		next := 0
 		for item := range p.ch {
 			pending[item.Index] = item.Value
+			if maxPending > 0 && len(pending) > maxPending {
+				return
+			}
 			for {
 				v, ok := pending[next]
 				if !ok {
@@ -332,6 +379,15 @@ func Ordered[T any](p Pipe[Indexed[T]]) Pipe[T] {
 		}
 	}()
 	return Pipe[T]{ch: out, ctx: p.ctx}
+}
+
+// Ordered buffers Indexed items until they can be emitted strictly in
+// ascending Index order — Enumerate's pair, undoing whatever reordering
+// a concurrent stage in between introduced. One badly-delayed item
+// stalls everything queued behind it — the standard cost of restoring
+// order after concurrent work. Use OrderedN to cap the reorder buffer.
+func Ordered[T any](p Pipe[Indexed[T]]) Pipe[T] {
+	return OrderedN(p, 0)
 }
 
 // Collect drains p fully and returns every item in arrival order.
@@ -361,9 +417,9 @@ func (p Pipe[T]) Each(fn func(T)) {
 }
 
 // Await blocks for the one item a Go-built Pipe produces — the natural
-// terminal for Go specifically. Returns the zero value of T if p is
-// already drained/empty, matching a plain channel receive's own
-// behavior; it does not panic.
-func (p Pipe[T]) Await() T {
-	return <-p.ch
+// terminal for Go specifically. Returns Some(value) when an item is
+// received, or None when the pipe is already drained or empty.
+func (p Pipe[T]) Await() adt.Option[T] {
+	v, ok := <-p.ch
+	return adt.FromOk(v, ok)
 }

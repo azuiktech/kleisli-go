@@ -14,12 +14,17 @@ var (
 // Register makes T recoverable from an Any under name — call once,
 // typically from an init(), before any Dyn or UnmarshalJSON call: the
 // registry has no locking, the same assumption gob.Register and protobuf's
-// registry make. Register panics on a duplicate name.
+// registry make. Register panics on a duplicate name or if the same Go
+// type is registered under a second, different name (which would leave
+// the two maps inconsistent).
 func Register[T any](name string) {
 	if _, exists := nameToType[name]; exists {
 		panic(fmt.Sprintf("adt: type name %q already registered", name))
 	}
 	t := reflect.TypeOf(*new(T))
+	if existing, exists := typeToName[t]; exists {
+		panic(fmt.Sprintf("adt: type %v already registered as %q; cannot also register as %q", t, existing, name))
+	}
 	typeToName[t] = name
 	nameToType[name] = t
 }
