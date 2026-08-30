@@ -29,39 +29,39 @@ func (s *SyncRingBuffer[T]) Pop() (out adt.Option[T]) {
 }
 
 func (s *SyncRingBuffer[T]) Peek() (out adt.Option[T]) {
-	s.Read(func(r *RingBuffer[T]) { out = r.Peek() })
+	s.Read(func(r RingBuffer[T]) { out = r.Peek() })
 	return
 }
 
 func (s *SyncRingBuffer[T]) At(i int) (out adt.Option[T]) {
-	s.Read(func(r *RingBuffer[T]) { out = r.At(i) })
+	s.Read(func(r RingBuffer[T]) { out = r.At(i) })
 	return
 }
 
 func (s *SyncRingBuffer[T]) Len() (n int) {
-	s.Read(func(r *RingBuffer[T]) { n = r.Len() })
+	s.Read(func(r RingBuffer[T]) { n = r.Len() })
 	return
 }
 
 func (s *SyncRingBuffer[T]) Cap() (n int) {
-	s.Read(func(r *RingBuffer[T]) { n = r.Cap() })
+	s.Read(func(r RingBuffer[T]) { n = r.Cap() })
 	return
 }
 
 func (s *SyncRingBuffer[T]) Full() (b bool) {
-	s.Read(func(r *RingBuffer[T]) { b = r.Full() })
+	s.Read(func(r RingBuffer[T]) { b = r.Full() })
 	return
 }
 
 func (s *SyncRingBuffer[T]) Empty() (b bool) {
-	s.Read(func(r *RingBuffer[T]) { b = r.Empty() })
+	s.Read(func(r RingBuffer[T]) { b = r.Empty() })
 	return
 }
 
 // Segments returns copies of the two contiguous slices while holding the read
 // lock. The returned slices are independent of the internal array.
 func (s *SyncRingBuffer[T]) Segments() (first, second []T) {
-	s.Read(func(r *RingBuffer[T]) {
+	s.Read(func(r RingBuffer[T]) {
 		f, sec := r.Segments()
 		first = slices.Clone(f)
 		second = slices.Clone(sec)
@@ -71,7 +71,7 @@ func (s *SyncRingBuffer[T]) Segments() (first, second []T) {
 
 // Linearize returns a copy of the buffer's live content in logical order.
 func (s *SyncRingBuffer[T]) Linearize() (out []T) {
-	s.Read(func(r *RingBuffer[T]) { out = r.Linearize() })
+	s.Read(func(r RingBuffer[T]) { out = r.Linearize() })
 	return
 }
 

@@ -354,3 +354,24 @@ func TestSeq_MaxBy(t *testing.T) {
 		t.Error("Seq.MaxBy() on empty Seq returned Some")
 	}
 }
+
+func TestSeq_ForEach_DrainsSequence(t *testing.T) {
+	var got []int
+	FromSeq(slices.Values([]int{1, 2, 3})).ForEach(func(v int) { got = append(got, v) })
+	if !reflect.DeepEqual(got, []int{1, 2, 3}) {
+		t.Errorf("ForEach collected %v, want [1 2 3]", got)
+	}
+}
+
+func TestSeq_Tap_IsLazyAndPassesThrough(t *testing.T) {
+	var tapped []int
+	got := FromSeq(slices.Values([]int{1, 2, 3})).
+		Tap(func(v int) { tapped = append(tapped, v) }).
+		Collect()
+	if !reflect.DeepEqual(got, []int{1, 2, 3}) {
+		t.Errorf("Tap changed values: got %v", got)
+	}
+	if !reflect.DeepEqual(tapped, []int{1, 2, 3}) {
+		t.Errorf("Tap side-effect saw %v, want [1 2 3]", tapped)
+	}
+}
