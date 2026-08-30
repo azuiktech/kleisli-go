@@ -357,6 +357,47 @@ func (s Seq[T]) MaxBy[K cmp.Ordered](fn func(T) K) adt.Option[T] {
 	return adt.Some(best)
 }
 
+// MapWhile maps each element to an Option[U], emitting the unwrapped value
+// and stopping at the first None.
+func (s Seq[T]) MapWhile[U any](fn func(T) adt.Option[U]) Seq[U] {
+	return s.Gather(mapWhileGatherer[T, U](fn))
+}
+
+// ScanWhile is a stateful MapWhile that accumulates state, stopping on None.
+func (s Seq[T]) ScanWhile[A, U any](initial A, fn func(A, T) (A, adt.Option[U])) Seq[U] {
+	return s.Gather(scanWhileGatherer[T, A, U](initial, fn))
+}
+
+// MinByCompare returns the minimum element using a raw comparator.
+func (s Seq[T]) MinByCompare(less func(a, b T) int) adt.Option[T] {
+	var best T
+	found := false
+	for v := range s.seq {
+		if !found || less(v, best) < 0 {
+			best, found = v, true
+		}
+	}
+	if !found {
+		return adt.None[T]()
+	}
+	return adt.Some(best)
+}
+
+// ToMapBy builds a map with explicit collision handling.
+// Use KeepFirst, KeepLast, or a custom combine function as merge.
+func (s Seq[T]) ToMapBy[K comparable, V any](fn func(T) (K, V), merge func(existing, incoming V) V) map[K]V {
+	out := map[K]V{}
+	for v := range s.seq {
+		k, val := fn(v)
+		if existing, ok := out[k]; ok {
+			out[k] = merge(existing, val)
+		} else {
+			out[k] = val
+		}
+	}
+	return out
+}
+
 // ZipSeq pairs elements from two Seqs positionally, stopping at the
 // shorter one, via iter.Pull to consume both in lockstep.
 func ZipSeq[A, B any](sa Seq[A], sb Seq[B]) Seq[Pair[A, B]] {

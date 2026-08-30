@@ -602,3 +602,97 @@ func (s Stream[T]) MaxBy[K cmp.Ordered](fn func(T) K) adt.Option[T] {
 	}
 	return adt.Some(best)
 }
+
+// MinByCompare returns the minimum element using a raw comparator (negative
+// means a < b). Prefer MinBy when the ordering is expressible as a key.
+func (s Stream[T]) MinByCompare(less func(a, b T) int) adt.Option[T] {
+	if len(s.items) == 0 {
+		return adt.None[T]()
+	}
+	return adt.Some(Of(s.items[1:]).Reduce(s.items[0], func(best, v T) T {
+		if less(v, best) < 0 {
+			return v
+		}
+		return best
+	}))
+}
+
+// SortFunc sorts with a raw comparator — useful when the ordering is not
+// expressible as a key projection. Stable, matching SortBy.
+func (s Stream[T]) SortFunc(less func(a, b T) int) Stream[T] {
+	return Stream[T]{items: slices.SortedStableFunc(slices.Values(s.items), less)}
+}
+
+// ToMapBy builds a map with explicit collision handling: merge is called
+// whenever two elements produce the same key.
+// Use KeepFirst, KeepLast, or a custom combine function as merge.
+func (s Stream[T]) ToMapBy[K comparable, V any](fn func(T) (K, V), merge func(existing, incoming V) V) map[K]V {
+	out := make(map[K]V, len(s.items))
+	for _, v := range s.items {
+		k, val := fn(v)
+		if existing, ok := out[k]; ok {
+			out[k] = merge(existing, val)
+		} else {
+			out[k] = val
+		}
+	}
+	return out
+}
+
+// KeepFirst is a merge policy for ToMapBy that keeps the first value seen for a key.
+func KeepFirst[V any](existing, _ V) V { return existing }
+
+// KeepLast is a merge policy for ToMapBy that keeps the latest value seen for a key.
+func KeepLast[V any](_, incoming V) V { return incoming }
+
+// MapWhile maps each element to an Option[U], emitting the unwrapped value and
+// stopping at the first None — Rust's Iterator::map_while.
+func (s Stream[T]) MapWhile[U any](fn func(T) adt.Option[U]) Stream[U] {
+	return s.Gather(mapWhileGatherer[T, U](fn))
+}
+
+// ScanWhile is a stateful MapWhile: accumulates state while fn returns Some,
+// stops at the first None — Rust's Iterator::scan.
+func (s Stream[T]) ScanWhile[A, U any](initial A, fn func(A, T) (A, adt.Option[U])) Stream[U] {
+	return s.Gather(scanWhileGatherer[T, A, U](initial, fn))
+}
+
+// MapWhile returns a Gatherer that maps to Option[U] and stops on None.
+// Compose with Stream.Gather or Seq.Gather for use without a convenience method.
+func MapWhile[T, U any](fn func(T) adt.Option[U]) Gatherer[T, struct{}, U] {
+	return mapWhileGatherer[T, U](fn)
+}
+
+// ScanWhile returns a Gatherer that accumulates state and stops on None.
+// Compose with Stream.Gather or Seq.Gather for use without a convenience method.
+func ScanWhile[T, A, U any](initial A, fn func(A, T) (A, adt.Option[U])) Gatherer[T, A, U] {
+	return scanWhileGatherer[T, A, U](initial, fn)
+}
+
+func mapWhileGatherer[T, U any](fn func(T) adt.Option[U]) Gatherer[T, struct{}, U] {
+	return Gatherer[T, struct{}, U]{
+		Init: func() struct{} { return struct{}{} },
+		Integrate: func(s struct{}, item T, emit func(U)) (struct{}, bool) {
+			opt := fn(item)
+			if opt.IsNone() {
+				return s, false
+			}
+			emit(opt.MustGet())
+			return s, true
+		},
+	}
+}
+
+func scanWhileGatherer[T, A, U any](initial A, fn func(A, T) (A, adt.Option[U])) Gatherer[T, A, U] {
+	return Gatherer[T, A, U]{
+		Init: func() A { return initial },
+		Integrate: func(acc A, item T, emit func(U)) (A, bool) {
+			next, opt := fn(acc, item)
+			if opt.IsNone() {
+				return next, false
+			}
+			emit(opt.MustGet())
+			return next, true
+		},
+	}
+}
