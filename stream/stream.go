@@ -35,10 +35,16 @@ type Stream[T any] struct {
 	items []T
 }
 
-// Of wraps a slice in a Stream. The original slice is not copied — Stream
-// shares its backing array with the caller, so mutating the source slice
-// after calling Of affects the Stream too.
+// Of wraps a slice in a Stream. The slice is not copied — the Stream
+// shares the backing array with the caller. Likewise, Take, Skip, and
+// Collect all alias the same array. Call Clone on the result when you
+// need an independent copy before mutating the source or passing the
+// Stream to concurrent code.
 func Of[T any](items []T) Stream[T] { return Stream[T]{items: items} }
+
+// Clone returns a Stream backed by a fresh copy of its items, isolating
+// the Stream from any future mutations to the original slice.
+func (s Stream[T]) Clone() Stream[T] { return Stream[T]{items: slices.Clone(s.items)} }
 
 // FromSlice is Of, named to read as Seq's own FromSeq's counterpart.
 func FromSlice[T any](items []T) Stream[T] { return Of(items) }
@@ -118,7 +124,11 @@ func (s Stream[T]) Last(fn func(T) bool) adt.Option[T] {
 }
 
 // Take returns a Stream containing at most n leading elements.
+// Panics if n is negative.
 func (s Stream[T]) Take(n int) Stream[T] {
+	if n < 0 {
+		panic("stream: Take count must be non-negative")
+	}
 	if n >= len(s.items) {
 		return s
 	}
@@ -126,7 +136,11 @@ func (s Stream[T]) Take(n int) Stream[T] {
 }
 
 // Skip returns a Stream with the first n elements removed.
+// Panics if n is negative.
 func (s Stream[T]) Skip(n int) Stream[T] {
+	if n < 0 {
+		panic("stream: Skip count must be non-negative")
+	}
 	if n >= len(s.items) {
 		return Empty[T]()
 	}
@@ -401,8 +415,11 @@ func Fold[T, U any](initial U, fn func(U, T) U) Gatherer[T, U, U] {
 }
 
 // WindowFixed partitions into non-overlapping chunks of n — the last chunk
-// may be shorter. Java 24's Gatherers.windowFixed.
+// may be shorter. Java 24's Gatherers.windowFixed. Panics if n < 1.
 func WindowFixed[T any](n int) Gatherer[T, []T, []T] {
+	if n < 1 {
+		panic("stream: WindowFixed size must be at least 1")
+	}
 	return Gatherer[T, []T, []T]{
 		Init: func() []T { return make([]T, 0, n) },
 		Integrate: func(window []T, item T, emit func([]T)) ([]T, bool) {
@@ -428,7 +445,11 @@ func WindowFixed[T any](n int) Gatherer[T, []T, []T] {
 // deliberate safety-over-performance choice (mutating one window can
 // never corrupt its neighbors or the source). Total copying is O(n ×
 // size), not O(n) — revisit only if profiling shows it actually matters.
+// Panics if n < 1.
 func WindowSliding[T any](n int) Gatherer[T, []T, []T] {
+	if n < 1 {
+		panic("stream: WindowSliding size must be at least 1")
+	}
 	return Gatherer[T, []T, []T]{
 		Init: func() []T { return make([]T, 0, n) },
 		Integrate: func(window []T, item T, emit func([]T)) ([]T, bool) {

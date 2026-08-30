@@ -145,12 +145,36 @@ func (s Seq[T]) Skip(n int) Seq[T] {
 	return Seq[T]{seq: skipSeq(s.seq, n)}
 }
 
-// Each calls fn on every element as it's produced.
+// ForEach calls fn on every element, draining the sequence. Use this as
+// the explicit terminal when you do not need the return value — it
+// communicates that the Seq is exhausted after the call.
+func (s Seq[T]) ForEach(fn func(T)) {
+	for v := range s.seq {
+		fn(v)
+	}
+}
+
+// Each calls fn on every element as it's produced and returns the Seq.
+// Prefer ForEach when you only need the side effect — Each exists for
+// cases where chaining on the (now-exhausted) Seq value is intentional.
 func (s Seq[T]) Each(fn func(T)) Seq[T] {
 	for v := range s.seq {
 		fn(v)
 	}
 	return s
+}
+
+// Tap calls fn on each element as it passes through without consuming
+// the sequence — a lazy, non-draining peek for logging or metrics.
+func (s Seq[T]) Tap(fn func(T)) Seq[T] {
+	return Seq[T]{seq: func(yield func(T) bool) {
+		for v := range s.seq {
+			fn(v)
+			if !yield(v) {
+				return
+			}
+		}
+	}}
 }
 
 // Any reports whether fn returns true for at least one element —

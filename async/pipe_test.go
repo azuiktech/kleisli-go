@@ -220,3 +220,53 @@ func TestFromIter_EarlyStop(t *testing.T) {
 		t.Error("FromIter source was never pulled")
 	}
 }
+
+func TestParallel_PanicsOnZeroWorkers(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Parallel(0) should panic")
+		}
+	}()
+	From([]int{1}).Parallel(0, func(n int) int { return n })
+}
+
+func TestWindow_PanicsOnZeroSize(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Window(p, 0) should panic")
+		}
+	}()
+	Window(From([]int{1}), 0)
+}
+
+func TestOrderedN_StopsWhenBufferExceeded(t *testing.T) {
+	// Items 1,2,3 arrive out of order — index 0 never arrives so 1 and 2
+	// pile up. With maxPending=1, the pipeline should stop before collecting all.
+	p := FromContext(context.Background(), []Indexed[int]{
+		{Index: 1, Value: 10},
+		{Index: 2, Value: 20},
+		{Index: 3, Value: 30},
+	})
+	got := OrderedN(p, 1).Collect()
+	// Index 0 is absent; after 1 item accumulates in pending, OrderedN stops.
+	if len(got) > 0 {
+		t.Errorf("OrderedN with exceeded buffer should produce no output, got %v", got)
+	}
+}
+
+func TestForkBuffered_EachBranchReceivesAllItems(t *testing.T) {
+	branches := ForkBuffered(From([]int{1, 2, 3}), 2, 4)
+	var a, b []int
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); a = branches[0].Collect() }()
+	go func() { defer wg.Done(); b = branches[1].Collect() }()
+	wg.Wait()
+	want := []int{1, 2, 3}
+	if !reflect.DeepEqual(a, want) {
+		t.Errorf("ForkBuffered branch 0 = %v, want %v", a, want)
+	}
+	if !reflect.DeepEqual(b, want) {
+		t.Errorf("ForkBuffered branch 1 = %v, want %v", b, want)
+	}
+}
