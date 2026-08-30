@@ -33,7 +33,7 @@ func RunSingleWeatherQuery(ctx context.Context, logs *[]string) string {
 		fmt.Println(msg)
 	}
 
-	task := async.Launch(ctx, func(p *async.Promise[string]) string {
+	task := async.Launch(ctx, func(p *async.Promise[string]) adt.Result[string] {
 		query := async.Receive(p).OrElse("")
 		city := parseCity(query)
 
@@ -43,7 +43,7 @@ func RunSingleWeatherQuery(ctx context.Context, logs *[]string) string {
 		// Suspend and wait for temperature value
 		tempVal := async.Receive(p).OrElse("")
 
-		return fmt.Sprintf("%s temperature is %s deg", city, tempVal)
+		return adt.OK(fmt.Sprintf("%s temperature is %s deg", city, tempVal))
 	})
 
 	task.OnEmit(func(val any) {
@@ -83,7 +83,7 @@ func RunMultiWeatherPipelined(ctx context.Context, logs *[]string) string {
 		fmt.Println(msg)
 	}
 
-	task := async.Launch(ctx, func(p *async.Promise[string]) string {
+	task := async.Launch(ctx, func(p *async.Promise[string]) adt.Result[string] {
 		// Read cities
 		c1 := parseCity(async.Receive(p).OrElse(""))
 		async.Emit(p, Temperature{City: c1})
@@ -95,7 +95,7 @@ func RunMultiWeatherPipelined(ctx context.Context, logs *[]string) string {
 		t1 := async.Receive(p).OrElse("")
 		t2 := async.Receive(p).OrElse("")
 
-		return fmt.Sprintf("%s temperature is %s deg & %s %s deg", c1, t1, c2, t2)
+		return adt.OK(fmt.Sprintf("%s temperature is %s deg & %s %s deg", c1, t1, c2, t2))
 	})
 
 	task.OnEmit(func(val any) {
