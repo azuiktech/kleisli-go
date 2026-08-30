@@ -53,11 +53,17 @@ func From[T any](val T, err error) Result[T] {
 	return OK(val)
 }
 
-// FromNonZero returns OK(val) if val is non-zero; otherwise returns Err[T](err).
+// FromNonZero returns OK(val) when err is nil and val is non-zero.
+// If err is non-nil, the error takes precedence regardless of val.
+// Panics if both err is nil and val is zero — that combination is
+// ambiguous: either err is missing or val genuinely cannot be zero.
 func FromNonZero[T comparable](val T, err error) Result[T] {
+	if err != nil {
+		return Err[T](err)
+	}
 	var zero T
 	if val == zero {
-		return Err[T](err)
+		panic("adt.FromNonZero: zero value with nil error — provide a non-nil error for the zero case, or use From")
 	}
 	return OK(val)
 }
