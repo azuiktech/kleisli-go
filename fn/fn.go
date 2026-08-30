@@ -145,6 +145,66 @@ func Coalesce[T comparable](vals ...T) T {
 	return zero
 }
 
+// ── Predicate combinators ─────────────────────────────────────────────────────
+
+// Not negates a predicate: Not(f)(x) == !f(x).
+func Not[T any](f func(T) bool) func(T) bool {
+	return func(x T) bool { return !f(x) }
+}
+
+// And returns a predicate that is true when all of fs are true (short-circuits).
+func And[T any](fs ...func(T) bool) func(T) bool {
+	return func(x T) bool {
+		for _, f := range fs {
+			if !f(x) {
+				return false
+			}
+		}
+		return true
+	}
+}
+
+// Or returns a predicate that is true when any of fs is true (short-circuits).
+func Or[T any](fs ...func(T) bool) func(T) bool {
+	return func(x T) bool {
+		for _, f := range fs {
+			if f(x) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// AllOf is an alias for And — reads naturally in filter chains.
+func AllOf[T any](fs ...func(T) bool) func(T) bool { return And(fs...) }
+
+// AnyOf is an alias for Or — reads naturally in filter chains.
+func AnyOf[T any](fs ...func(T) bool) func(T) bool { return Or(fs...) }
+
+// NoneOf returns a predicate that is true when none of fs are true.
+func NoneOf[T any](fs ...func(T) bool) func(T) bool { return Not(Or(fs...)) }
+
+// ── Bound predicates ──────────────────────────────────────────────────────────
+
+// EqualTo returns a predicate that reports whether its argument equals x.
+func EqualTo[T comparable](x T) func(T) bool { return func(v T) bool { return v == x } }
+
+// NotEqualTo returns a predicate that reports whether its argument differs from x.
+func NotEqualTo[T comparable](x T) func(T) bool { return func(v T) bool { return v != x } }
+
+// LessThan returns a predicate that reports whether its argument is < x.
+func LessThan[T cmp.Ordered](x T) func(T) bool { return func(v T) bool { return v < x } }
+
+// LessThanOrEqual returns a predicate that reports whether its argument is ≤ x.
+func LessThanOrEqual[T cmp.Ordered](x T) func(T) bool { return func(v T) bool { return v <= x } }
+
+// GreaterThan returns a predicate that reports whether its argument is > x.
+func GreaterThan[T cmp.Ordered](x T) func(T) bool { return func(v T) bool { return v > x } }
+
+// GreaterThanOrEqual returns a predicate that reports whether its argument is ≥ x.
+func GreaterThanOrEqual[T cmp.Ordered](x T) func(T) bool { return func(v T) bool { return v >= x } }
+
 // ── Function composition (tacit / point-free) ─────────────────────────────────
 
 // Fn is a named unary function type — wrapping func(T) U lets Then attach as a method.
