@@ -20,9 +20,15 @@ func TestFrom_ProducesItemsInOrder(t *testing.T) {
 }
 
 func TestGo_AwaitReturnsFnsResult(t *testing.T) {
-	got := Go(func() int { return 42 }).Await()
-	if got != 42 {
-		t.Errorf("Go(fn).Await() = %d, want 42", got)
+	o := Go(func() int { return 42 }).Await()
+	if !o.IsSome() || o.MustGet() != 42 {
+		t.Errorf("Go(fn).Await() = %v, want Some(42)", o)
+	}
+}
+
+func TestAwait_ReturnNoneWhenDrained(t *testing.T) {
+	if From([]int{}).Await().IsSome() {
+		t.Error("Await on empty pipe should return None")
 	}
 }
 

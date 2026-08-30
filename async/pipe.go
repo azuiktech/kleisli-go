@@ -20,6 +20,8 @@ import (
 	"sync"
 
 	"golang.org/x/time/rate"
+
+	"github.com/azuiktech/kleisli-go/adt"
 )
 
 // Pipe wraps a channel for CSP-style pipeline composition — the
@@ -415,9 +417,9 @@ func (p Pipe[T]) Each(fn func(T)) {
 }
 
 // Await blocks for the one item a Go-built Pipe produces — the natural
-// terminal for Go specifically. Returns the zero value of T if p is
-// already drained/empty, matching a plain channel receive's own
-// behavior; it does not panic.
-func (p Pipe[T]) Await() T {
-	return <-p.ch
+// terminal for Go specifically. Returns Some(value) when an item is
+// received, or None when the pipe is already drained or empty.
+func (p Pipe[T]) Await() adt.Option[T] {
+	v, ok := <-p.ch
+	return adt.FromOk(v, ok)
 }
