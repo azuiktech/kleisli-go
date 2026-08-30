@@ -299,14 +299,15 @@ func TestOption_Some_and_None(t *testing.T) {
 	}
 }
 
-func TestOption_Some_panics_on_nil(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("Some(nil) should panic")
-		}
-	}()
+func TestOption_Some_allows_nil(t *testing.T) {
 	var p *int
-	adt.Some(p)
+	o := adt.Some(p)
+	if !o.IsSome() {
+		t.Fatal("Some(nil pointer) should be IsSome — ok discriminant distinguishes it from None")
+	}
+	if o.MustGet() != nil {
+		t.Fatal("Some(nil pointer).MustGet() should return nil")
+	}
 }
 
 func TestOption_Opt(t *testing.T) {

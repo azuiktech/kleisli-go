@@ -24,14 +24,17 @@ func NewHandle[D any](init D) Handle[D] {
 	return Handle[D]{impl: &s}
 }
 
-// Read acquires the read lock and calls fn. Multiple readers may proceed concurrently.
-func (h Handle[D]) Read(fn func(*D)) { h.impl.Read(fn) }
+// Read acquires the read lock and calls fn with a snapshot of the state.
+// The snapshot is a shallow copy — see Sync.Read for caveats on
+// pointer/map/slice fields. Multiple readers may proceed concurrently.
+func (h Handle[D]) Read(fn func(D)) { h.impl.Read(fn) }
 
 // Write acquires the write lock and calls fn.
 func (h Handle[D]) Write(fn func(*D)) { h.impl.Write(fn) }
 
-// Map acquires the read lock, calls fn, and returns its result.
-func (h Handle[D]) Map[R any](fn func(*D) R) R { return h.impl.Map(fn) }
+// Map acquires the read lock, calls fn with a snapshot of the state, and
+// returns its result. Multiple readers may proceed concurrently.
+func (h Handle[D]) Map[R any](fn func(D) R) R { return h.impl.Map(fn) }
 
 // Mutate acquires the write lock, calls fn, and returns its result.
 func (h Handle[D]) Mutate[R any](fn func(*D) R) R { return h.impl.Mutate(fn) }

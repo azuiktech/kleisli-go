@@ -16,11 +16,10 @@ type Option[T any] struct {
 	ok  bool
 }
 
-// Some wraps a present value. Panics if val is nil.
+// Some wraps a present value, including nil pointers. The ok discriminant
+// is sufficient to distinguish Some(nil) from None — no nil check is applied.
+// Use Opt if you want nil to become None instead.
 func Some[T any](val T) Option[T] {
-	if isNil(val) {
-		panic("adt: Some called with a nil value — use None, or Opt if val might be nil")
-	}
 	return Option[T]{val: val, ok: true}
 }
 
@@ -230,7 +229,6 @@ func (o Option[T]) Fold[U any](onSome func(T) U, onNone func() U) U {
 }
 
 // Map transforms the value into a different type. Absence propagates.
-// Panics if fn returns nil — the same invariant Some enforces.
 func (o Option[T]) Map[U any](fn func(T) U) Option[U] {
 	if !o.ok {
 		return None[U]()
