@@ -7,7 +7,7 @@ Small generic utilities for Go 1.27+. Five packages cover the full surface:
 | `adt` | `Result[T]`, `Option[T]`, `Unit`/`Void`, `Lazy[T]`, `Any` |
 | `fn` | value transforms, `Fn`/`Fn2` point-free composition, rotated-sequence algorithms, memoization |
 | `stream` | `Stream[T]` (eager) and `Seq[T]` (lazy) slice/iterator pipelines |
-| `async` | `Pipe[T]` CSP pipelines, `Sync[T]`, `Handle[T]`, `Ctx[T]` |
+| `async` | `Pipe[T]` CSP pipelines, `Task[T]`, `Promise`, `Sync[T]`, `Handle[T]`, `Ctx[T]` |
 | `ds` | `RingBuffer[T]`, `SyncRingBuffer[T]` |
 
 All types use Go 1.27 generic method type parameters, so transformations that
@@ -210,6 +210,28 @@ rate limiting, fan-out/fan-in, batching.
 
 ```go
 total := async.From(urls).Parallel(8, fetchAndParse).Reduce(0, sum)
+```
+
+**`Task[O]` & `Promise`** — generic C++/C#/Rust-style Promise/Task coroutine system with
+channel-backed suspension. Suspendable functions take `p *async.Promise` as their first parameter
+and return standard Go types `O`. Inside the computation, `async.Receive[T](p)` or `async.Yield[T](p, val)`
+suspends until the caller provides input. Callers drive execution via `task.Send(val)` and can
+await results with `task.Await()` or register non-blocking callbacks (`task.OnDone`, `task.OnEmit`).
+
+```go
+// 1. Suspendable Function taking Promise context
+task := async.Launch(ctx, func(p *async.Promise) string {
+    // Atomic Emit + Receive (or async.Receive[string](p))
+    name := async.Yield[string](p, "What is your name?")
+    return "Hello, " + name
+})
+
+// 2. Caller fulfills externally (timer, webhook, user input)
+task.OnEmit(func(prompt any) { fmt.Println("Prompt:", prompt) })
+task.Send("Gopher")
+
+// 3. Await final result (or use OnDone callback)
+res := task.Await().MustGet() // "Hello, Gopher"
 ```
 
 **`Sync[T]`** — concurrent state behind a `sync.RWMutex`, with `Read`,
