@@ -15,8 +15,8 @@ func TestTask_TypedSendAndReceive(t *testing.T) {
 	ctx := context.Background()
 
 	task := Launch(ctx, func(p *Promise[int]) adt.Result[string] {
-		a := Receive(p).OrElse(0)
-		b := Receive(p).OrElse(0)
+		a := p.Receive().OrElse(0)
+		b := p.Receive().OrElse(0)
 		return adt.OK(fmt.Sprintf("sum: %d", a+b))
 	})
 
@@ -45,8 +45,8 @@ func TestTask_Yield_AtomicEmitReceive(t *testing.T) {
 	ctx := context.Background()
 
 	task := Launch(ctx, func(p *Promise[string]) adt.Result[string] {
-		name := Yield[string, string](p, "what is your name?").OrElse("")
-		city := Yield[string, string](p, "what is your city?").OrElse("")
+		name := p.Yield( "what is your name?").OrElse("")
+		city := p.Yield( "what is your city?").OrElse("")
 		return adt.OK(fmt.Sprintf("%s from %s", name, city))
 	})
 
@@ -79,7 +79,7 @@ func TestTask_MonadicChaining(t *testing.T) {
 	ctx := context.Background()
 
 	base := Launch(ctx, func(p *Promise[int]) adt.Result[int] {
-		x := Receive(p).OrElse(0)
+		x := p.Receive().OrElse(0)
 		return adt.OK(x * 2)
 	})
 
@@ -268,9 +268,9 @@ func TestTask_OnEmitAs_TypedFiltering(t *testing.T) {
 	type CustomEvent struct{ ID int }
 
 	task := Launch(ctx, func(p *Promise[unit]) adt.Result[string] {
-		Emit(p, "string message")
-		Emit(p, CustomEvent{ID: 42})
-		Emit(p, 12345)
+		p.Emit( "string message")
+		p.Emit( CustomEvent{ID: 42})
+		p.Emit( 12345)
 		return adt.OK("done")
 	})
 
@@ -297,8 +297,8 @@ func TestTask_OnEmit_LateRegistrationReplay(t *testing.T) {
 	ctx := context.Background()
 
 	task := Launch(ctx, func(p *Promise[unit]) adt.Result[string] {
-		Emit(p, "event 1")
-		Emit(p, "event 2")
+		p.Emit( "event 1")
+		p.Emit( "event 2")
 		return adt.OK("completed")
 	})
 
@@ -327,9 +327,9 @@ func TestTask_StepCancel(t *testing.T) {
 	ctx := context.Background()
 
 	task := Launch(ctx, func(p *Promise[string]) adt.Result[string] {
-		res1 := ReceiveResult(p)
+		res1 := p.ReceiveResult()
 		if res1.IsErr() {
-			res2 := Receive(p).OrElse("default")
+			res2 := p.Receive().OrElse("default")
 			return adt.OK("recovered: " + res2)
 		}
 		return adt.OK("normal: " + res1.MustGet())
@@ -349,7 +349,7 @@ func TestTask_CancelAll(t *testing.T) {
 	ctx := context.Background()
 
 	task := Launch(ctx, func(p *Promise[int]) adt.Result[int] {
-		_ = Receive(p)
+		_ = p.Receive()
 		return adt.OK(100)
 	})
 

@@ -65,12 +65,12 @@ func endStep[I any](p *Promise[I]) {
 
 // Receive suspends until Send delivers a value, or the task/step is cancelled.
 // Returns None on cancellation or close.
-func Receive[I any](p *Promise[I]) adt.Option[I] {
-	return ReceiveResult[I](p).ToOption()
+func (p *Promise[I]) Receive() adt.Option[I] {
+	return p.ReceiveResult().ToOption()
 }
 
 // ReceiveResult is Receive returning a Result: Err on cancel/close, OK on delivery.
-func ReceiveResult[I any](p *Promise[I]) adt.Result[I] {
+func (p *Promise[I]) ReceiveResult() adt.Result[I] {
 	stepCtx := withStep(p)
 	defer endStep(p)
 	select {
@@ -87,16 +87,16 @@ func ReceiveResult[I any](p *Promise[I]) adt.Result[I] {
 }
 
 // Emit sends a side-channel value to OnEmit listeners without suspending.
-func Emit[I, E any](p *Promise[I], val E) {
+func (p *Promise[I]) Emit[E any](val E) {
 	if p.onEmitFn != nil {
 		p.onEmitFn(val)
 	}
 }
 
 // Yield atomically emits val and suspends to receive the next input.
-func Yield[I, E any](p *Promise[I], val E) adt.Result[I] {
-	Emit[I, E](p, val)
-	return ReceiveResult[I](p)
+func (p *Promise[I]) Yield[E any](val E) adt.Result[I] {
+	p.Emit(val)
+	return p.ReceiveResult()
 }
 
 // Task drives a typed coroutine: I is the input type, O is the output type.
@@ -180,6 +180,11 @@ func (t *Task[I, O]) dispatchEmit(val any) {
 // Send delivers val to the coroutine.
 // Returns false if the task is already done or cancelled.
 func (t *Task[I, O]) Send(val I) bool {
+	select {
+	case <-t.doneCh:
+		return false
+	default:
+	}
 	select {
 	case t.promise.inputCh <- val:
 		return true
