@@ -1,13 +1,12 @@
 package stream
 
-import "github.com/azuiktech/kleisli-go/adt"
+import (
+	"github.com/azuiktech/kleisli-go/adt"
+	"github.com/azuiktech/kleisli-go/fn"
+)
 
-// Number is the set of Go's built-in numeric types.
-type Number interface {
-	~int | ~int8 | ~int16 | ~int32 | ~int64 |
-		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr |
-		~float32 | ~float64
-}
+// Number is the set of Go's built-in numeric types, aliasing fn.Number.
+type Number = fn.Number
 
 // NumberStream is an eager numeric pipeline produced by Stream.MapToNumber.
 // Its methods (Sum, Product, Mean, Min, Max) are available because the
