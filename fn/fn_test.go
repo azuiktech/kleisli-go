@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/azuiktech/kleisli-go/fn"
+	"github.com/azuiktech/kleisli-go/stream"
 )
 
 var errBoom = errors.New("boom")
@@ -239,3 +240,102 @@ func TestBefore(t *testing.T) {
 		t.Fatalf("Before in first: unexpected a=%v b=%v", a, b)
 	}
 }
+
+// ── In / NotIn / Constant ─────────────────────────────────────────────────────
+
+func TestIn(t *testing.T) {
+	t.Run("empty set", func(t *testing.T) {
+		inEmpty := fn.In[int]()
+		if inEmpty(1) {
+			t.Fatal("In() should return false for any item")
+		}
+	})
+
+	t.Run("membership match", func(t *testing.T) {
+		allowed := fn.In("admin", "editor")
+		if !allowed("admin") {
+			t.Fatal("In should return true for admin")
+		}
+		if !allowed("editor") {
+			t.Fatal("In should return true for editor")
+		}
+		if allowed("viewer") {
+			t.Fatal("In should return false for viewer")
+		}
+	})
+
+	t.Run("comparable struct", func(t *testing.T) {
+		type pair struct{ x, y int }
+		inPairs := fn.In(pair{1, 2}, pair{3, 4})
+		if !inPairs(pair{1, 2}) {
+			t.Fatal("In should match struct")
+		}
+		if inPairs(pair{9, 9}) {
+			t.Fatal("In should not match missing struct")
+		}
+	})
+}
+
+func TestNotIn(t *testing.T) {
+	notBlocked := fn.NotIn("banned", "spam")
+	if notBlocked("banned") {
+		t.Fatal("NotIn should return false for banned")
+	}
+	if !notBlocked("active") {
+		t.Fatal("NotIn should return true for active")
+	}
+}
+
+func TestConstant(t *testing.T) {
+	c := fn.Constant[int, string]("fixed")
+	if got := c(1); got != "fixed" {
+		t.Fatalf("Constant: want 'fixed', got %q", got)
+	}
+	if got := c(999); got != "fixed" {
+		t.Fatalf("Constant: want 'fixed', got %q", got)
+	}
+}
+
+func TestIn_StreamIntegration(t *testing.T) {
+	t.Run("subset", func(t *testing.T) {
+		userRoles := []string{"admin", "editor"}
+		validRoles := []string{"admin", "editor", "owner"}
+		isSubset := stream.Of(userRoles).All(fn.In(validRoles...))
+		if !isSubset {
+			t.Fatal("expected userRoles to be a subset of validRoles")
+		}
+	})
+
+	t.Run("intersection / hasAny", func(t *testing.T) {
+		userRoles := []string{"viewer", "editor"}
+		hasOverlap := stream.Of(userRoles).Any(fn.In("admin", "editor"))
+		if !hasOverlap {
+			t.Fatal("expected userRoles to intersect with admin/editor")
+		}
+	})
+
+	t.Run("disjoint", func(t *testing.T) {
+		userRoles := []string{"viewer", "guest"}
+		hasOverlap := stream.Of(userRoles).Any(fn.In("admin", "editor"))
+		if hasOverlap {
+			t.Fatal("expected userRoles to be disjoint from admin/editor")
+		}
+	})
+
+	t.Run("filter", func(t *testing.T) {
+		input := []string{"admin", "viewer", "editor", "guest"}
+		filtered := stream.Of(input).Filter(fn.In("admin", "editor")).Collect()
+		if len(filtered) != 2 || filtered[0] != "admin" || filtered[1] != "editor" {
+			t.Fatalf("unexpected filtered: %v", filtered)
+		}
+	})
+
+	t.Run("constant in map", func(t *testing.T) {
+		nums := []int{1, 2, 3}
+		mapped := stream.Of(nums).Map(fn.Constant[int, string]("x")).Collect()
+		if len(mapped) != 3 || mapped[0] != "x" || mapped[1] != "x" || mapped[2] != "x" {
+			t.Fatalf("unexpected mapped: %v", mapped)
+		}
+	})
+}
+

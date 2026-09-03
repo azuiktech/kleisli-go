@@ -205,6 +205,24 @@ func GreaterThan[T cmp.Ordered](x T) func(T) bool { return func(v T) bool { retu
 // GreaterThanOrEqual returns a predicate that reports whether its argument is ≥ x.
 func GreaterThanOrEqual[T cmp.Ordered](x T) func(T) bool { return func(v T) bool { return v >= x } }
 
+// In returns a predicate that reports whether its argument is present in set.
+func In[T comparable](set ...T) func(T) bool {
+	if len(set) <= 3 {
+		return func(v T) bool { return slices.Contains(set, v) }
+	}
+	m := make(map[T]struct{}, len(set))
+	for _, v := range set {
+		m[v] = struct{}{}
+	}
+	return func(v T) bool {
+		_, ok := m[v]
+		return ok
+	}
+}
+
+// NotIn returns a predicate that reports whether its argument is not present in set.
+func NotIn[T comparable](set ...T) func(T) bool { return Not(In(set...)) }
+
 // ── Function composition (tacit / point-free) ─────────────────────────────────
 
 // Fn is a named unary function type — wrapping func(T) U lets Then attach as a method.
@@ -226,6 +244,11 @@ func (combine Fn2[A, B, U]) Fork[T any](f Fn[T, A], g Fn[T, B]) Fn[T, U] {
 
 // Identity returns its argument unchanged.
 func Identity[T any](x T) T { return x }
+
+// Constant returns a function that ignores its argument and always returns val.
+func Constant[T, U any](val U) func(T) U {
+	return func(T) U { return val }
+}
 
 // ── Memoization ───────────────────────────────────────────────────────────────
 
