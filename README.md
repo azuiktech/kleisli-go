@@ -279,7 +279,7 @@ first, second := ring.Segments()
 ## Installation
 
 ```console
-go get github.com/azuiktech/kleisli-go@v0.15.0
+go get github.com/azuiktech/kleisli-go@v0.19.0
 ```
 
 Requires Go 1.27 or later (generic method type parameters).
