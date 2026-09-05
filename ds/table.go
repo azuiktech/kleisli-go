@@ -25,10 +25,12 @@ type internalIndex[V any] interface {
 	canInsert(v *V) bool
 	insert(v *V)
 	delete(v *V)
+	contains(v *V) bool
+	len() int
 	clear()
 }
 
-// Unique defines a unique secondary index on V by key K.
+// Unique defines a unique index on V by key K.
 type Unique[V any, K comparable] struct {
 	id      uint64
 	extract func(*V) K
@@ -107,6 +109,16 @@ func (s *uniqueStorage[V, K]) delete(v *V) {
 		Tap(func(*V) { delete(s.data, k) })
 }
 
+func (s *uniqueStorage[V, K]) contains(v *V) bool {
+	return adt.FromMap(s.data, s.extract(v)).
+		Filter(func(existing *V) bool { return existing == v }).
+		IsSome()
+}
+
+func (s *uniqueStorage[V, K]) len() int {
+	return len(s.data)
+}
+
 func (s *uniqueStorage[V, K]) clear() {
 	clear(s.data)
 }
@@ -136,6 +148,22 @@ func (s *nonUniqueStorage[V, K]) delete(v *V) {
 			s.data[k] = filtered
 		}
 	})
+}
+
+func (s *nonUniqueStorage[V, K]) contains(v *V) bool {
+	return adt.FromMap(s.data, s.extract(v)).
+		Filter(func(items []*V) bool {
+			return stream.Of(items).Any(func(item *V) bool { return item == v })
+		}).
+		IsSome()
+}
+
+func (s *nonUniqueStorage[V, K]) len() int {
+	var total int
+	for _, items := range s.data {
+		total += len(items)
+	}
+	return total
 }
 
 func (s *nonUniqueStorage[V, K]) clear() {
@@ -185,67 +213,80 @@ func (nv *nonUniqueViewImpl[V, K]) Count(key K) int {
 	return len(nv.Find(key))
 }
 
-// Table represents an in-memory collection of *V indexed by one or more keys.
+// Table represents an in-memory collection of *V where the first unique index acts as the main table.
 type Table[V any] struct {
-	items   map[*V]struct{}
-	indexes map[uint64]internalIndex[V]
-	order   []internalIndex[V]
+	main      internalIndex[V]
+	mainID    uint64
+	indexes   map[uint64]internalIndex[V]
+	secondary []internalIndex[V]
 }
 
-// NewTable constructs a new multi-index Table over *V with the provided index declarations.
-func NewTable[V any](indexes ...Index[V]) *Table[V] {
+// NewTable constructs a new multi-index Table over *V.
+// The first argument must be a Unique index, which serves as the Primary Key for the main table.
+func NewTable[V any, PK comparable](pk Unique[V, PK], secondary ...Index[V]) *Table[V] {
+	mainStorage := pk.createStorage()
 	t := &Table[V]{
-		items:   make(map[*V]struct{}),
-		indexes: make(map[uint64]internalIndex[V], len(indexes)),
-		order:   make([]internalIndex[V], 0, len(indexes)),
+		main:      mainStorage,
+		mainID:    pk.id,
+		indexes:   make(map[uint64]internalIndex[V], len(secondary)+1),
+		secondary: make([]internalIndex[V], 0, len(secondary)),
 	}
-	stream.Of(indexes).Each(func(idx Index[V]) {
+	t.indexes[pk.id] = mainStorage
+
+	stream.Of(secondary).Each(func(idx Index[V]) {
 		storage := idx.createStorage()
 		t.indexes[idx.indexID()] = storage
-		t.order = append(t.order, storage)
+		t.secondary = append(t.secondary, storage)
 	})
 	return t
 }
 
-// Insert adds a record to the table, atomically updating all indexes.
-// Returns false if any unique index constraint is violated.
+// Insert adds a record to the table, atomically updating the main table and all secondary indexes.
+// Returns false if the primary key or any secondary unique index constraint is violated.
 func (t *Table[V]) Insert(v *V) bool {
 	return adt.Opt(v).Filter(func(v *V) bool {
-		return stream.Of(t.order).All(func(idx internalIndex[V]) bool {
+		// Validate main table primary key uniqueness
+		if !t.main.canInsert(v) {
+			return false
+		}
+		// Validate all secondary unique indexes
+		return stream.Of(t.secondary).All(func(idx internalIndex[V]) bool {
 			return idx.canInsert(v)
 		})
 	}).Map(func(v *V) bool {
-		stream.Of(t.order).Each(func(idx internalIndex[V]) {
+		// Insert into main table (primary key)
+		t.main.insert(v)
+		// Insert into all secondary indexes
+		stream.Of(t.secondary).Each(func(idx internalIndex[V]) {
 			idx.insert(v)
 		})
-		t.items[v] = struct{}{}
 		return true
 	}).OrElse(false)
 }
 
 // Delete removes a record from the table and all its indexes.
-// Returns false if the record was not found.
+// Returns false if the record was not found in the main table.
 func (t *Table[V]) Delete(v *V) bool {
 	return adt.Opt(v).Filter(func(v *V) bool {
-		return adt.FromMap(t.items, v).IsSome()
+		return t.main.contains(v)
 	}).Map(func(v *V) bool {
-		stream.Of(t.order).Each(func(idx internalIndex[V]) {
+		t.main.delete(v)
+		stream.Of(t.secondary).Each(func(idx internalIndex[V]) {
 			idx.delete(v)
 		})
-		delete(t.items, v)
 		return true
 	}).OrElse(false)
 }
 
-// Len returns the number of records currently stored in the table.
+// Len returns the number of records currently stored in the main table.
 func (t *Table[V]) Len() int {
-	return len(t.items)
+	return t.main.len()
 }
 
-// Clear removes all records from the table and all its indexes.
+// Clear removes all records from the main table and all secondary indexes.
 func (t *Table[V]) Clear() {
-	clear(t.items)
-	stream.Of(t.order).Each(func(idx internalIndex[V]) { idx.clear() })
+	t.main.clear()
+	stream.Of(t.secondary).Each(func(idx internalIndex[V]) { idx.clear() })
 }
 
 // From binds the unique index to the given table, returning a type-safe UniqueView.
