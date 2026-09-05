@@ -247,3 +247,40 @@ func TestTable_IntegrationMultiIndexLifecycle(t *testing.T) {
 		t.Fatalf("expected Len 1, got %d", tbl.Len())
 	}
 }
+
+func TestTable_PrimaryKeyMainStorage(t *testing.T) {
+	// Verify that NewTable correctly takes testByID as PK and secondary indexes
+	tbl := ds.NewTable(testByID, testByEmail, testByZipCode)
+
+	u1 := &TestUser{ID: 10, Email: "user10@example.com", ZipCode: 50001}
+	u2 := &TestUser{ID: 20, Email: "user20@example.com", ZipCode: 50001}
+
+	tbl.Insert(u1)
+	tbl.Insert(u2)
+
+	if tbl.Len() != 2 {
+		t.Fatalf("expected Len 2, got %d", tbl.Len())
+	}
+
+	// Delete u1 directly and verify main table length decreases immediately
+	if !tbl.Delete(u1) {
+		t.Fatal("expected Delete(u1) to return true")
+	}
+	if tbl.Len() != 1 {
+		t.Fatalf("expected Len 1 after delete, got %d", tbl.Len())
+	}
+
+	// Re-insert u1 with new email
+	u1Re := &TestUser{ID: 10, Email: "user10.new@example.com", ZipCode: 50002}
+	if !tbl.Insert(u1Re) {
+		t.Fatal("expected re-insert of ID 10 to succeed")
+	}
+	if tbl.Len() != 2 {
+		t.Fatalf("expected Len 2 after re-insert, got %d", tbl.Len())
+	}
+
+	got := testByID.From(tbl).Find(10)
+	if !got.IsSome() || got.MustGet().Email != "user10.new@example.com" {
+		t.Fatalf("expected updated email, got %v", got)
+	}
+}
