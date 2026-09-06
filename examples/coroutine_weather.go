@@ -51,12 +51,14 @@ func RunSingleWeatherQuery(ctx context.Context, logs *[]string) string {
 			t := val.(Temperature)
 			log(fmt.Sprintf("Caller Received Emit: City=%s", t.City))
 		},
+		OnCall: []async.CallHandler{
+			QueryWeather.Handle(func(q WeatherQuery) adt.Result[string] {
+				input2 := "25"
+				log(fmt.Sprintf("Caller Input (Measurement): %s", input2))
+				return adt.OK(input2)
+			}),
+		},
 	}
-	async.RegisterHandler(&cfg, QueryWeather, func(q WeatherQuery) adt.Result[string] {
-		input2 := "25"
-		log(fmt.Sprintf("Caller Input (Measurement): %s", input2))
-		return adt.OK(input2)
-	})
 
 	task := async.Launch[string, string](cfg, city, func(co *async.Co, inCity string) adt.Result[string] {
 		// Emit query to caller
@@ -93,17 +95,19 @@ func RunMultiWeatherPipelined(ctx context.Context, logs *[]string) string {
 			t := val.(Temperature)
 			log(fmt.Sprintf("Caller Observed Emit: City=%s", t.City))
 		},
+		OnCall: []async.CallHandler{
+			QueryWeather.Handle(func(q WeatherQuery) adt.Result[string] {
+				switch q.City {
+				case "bangalore":
+					return adt.OK("25")
+				case "SF":
+					return adt.OK("23")
+				default:
+					return adt.Err[string](fmt.Errorf("unknown city: %s", q.City))
+				}
+			}),
+		},
 	}
-	async.RegisterHandler(&cfg, QueryWeather, func(q WeatherQuery) adt.Result[string] {
-		switch q.City {
-		case "bangalore":
-			return adt.OK("25")
-		case "SF":
-			return adt.OK("23")
-		default:
-			return adt.Err[string](fmt.Errorf("unknown city: %s", q.City))
-		}
-	})
 
 	task := async.Launch[adt.Unit, string](cfg, adt.Void, func(co *async.Co, _ adt.Unit) adt.Result[string] {
 		// Emit cities to caller

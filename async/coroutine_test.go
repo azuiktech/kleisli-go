@@ -260,14 +260,17 @@ func TestCoroutine_CaseA_AcknowledgedEmission(t *testing.T) {
 	eventOp := DefineOp[string, adt.Unit]("critical-event")
 	var mu sync.Mutex
 
-	cfg := Config{}
-	RegisterHandler(&cfg, eventOp, func(req string) adt.Result[adt.Unit] {
-		mu.Lock()
-		order = append(order, fmt.Sprintf("caller:processing-%s", req))
-		mu.Unlock()
-		time.Sleep(10 * time.Millisecond)
-		return adt.OK(adt.Void)
-	})
+	cfg := Config{
+		OnCall: []CallHandler{
+			eventOp.Handle(func(req string) adt.Result[adt.Unit] {
+				mu.Lock()
+				order = append(order, fmt.Sprintf("caller:processing-%s", req))
+				mu.Unlock()
+				time.Sleep(10 * time.Millisecond)
+				return adt.OK(adt.Void)
+			}),
+		},
+	}
 
 	task := Launch[adt.Unit, string](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
 		mu.Lock()
@@ -342,17 +345,20 @@ func TestCoroutine_CaseEF_CallExternal(t *testing.T) {
 
 	weatherOp := DefineOp[WeatherReq, WeatherReport]("weather")
 
-	cfg := Config{}
-	RegisterHandler(&cfg, weatherOp, func(r WeatherReq) adt.Result[WeatherReport] {
-		switch r.City {
-		case "NYC":
-			return adt.OK(WeatherReport{Temp: 72})
-		case "LON":
-			return adt.OK(WeatherReport{Temp: 55})
-		default:
-			return adt.Err[WeatherReport](errors.New("unknown request"))
-		}
-	})
+	cfg := Config{
+		OnCall: []CallHandler{
+			weatherOp.Handle(func(r WeatherReq) adt.Result[WeatherReport] {
+				switch r.City {
+				case "NYC":
+					return adt.OK(WeatherReport{Temp: 72})
+				case "LON":
+					return adt.OK(WeatherReport{Temp: 55})
+				default:
+					return adt.Err[WeatherReport](errors.New("unknown request"))
+				}
+			}),
+		},
+	}
 
 	task := Launch[adt.Unit, string](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
 		// Case E: Coupled Call + Await (type inferred!)
@@ -381,19 +387,22 @@ func TestCoroutine_Call_DecoupledNonBlocking(t *testing.T) {
 
 	strOp := DefineOp[string, string]("str_req")
 
-	cfg := Config{}
-	RegisterHandler(&cfg, strOp, func(req string) adt.Result[string] {
-		switch req {
-		case "req1":
-			close(req1Started)
-			<-allowReq1ToFinish
-			return adt.OK("resp1")
-		case "req2":
-			return adt.OK("resp2")
-		default:
-			return adt.Err[string](errors.New("unknown"))
-		}
-	})
+	cfg := Config{
+		OnCall: []CallHandler{
+			strOp.Handle(func(req string) adt.Result[string] {
+				switch req {
+				case "req1":
+					close(req1Started)
+					<-allowReq1ToFinish
+					return adt.OK("resp1")
+				case "req2":
+					return adt.OK("resp2")
+				default:
+					return adt.Err[string](errors.New("unknown"))
+				}
+			}),
+		},
+	}
 
 	task := Launch[adt.Unit, string](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
 		// Line A: Call req1 which blocks in handler
@@ -428,13 +437,21 @@ func TestCoroutine_Call_DecoupledNonBlocking(t *testing.T) {
 	}
 }
 
+type mismatchHandler struct{}
+
+func (m mismatchHandler) OpName() string { return "give_int" }
+func (m mismatchHandler) Handle(inv CallInvocation, p *Promise[any]) bool {
+	if inv.OpName == "give_int" {
+		p.Resolve("not-an-int")
+		return true
+	}
+	return false
+}
+
 func TestCoroutine_Call_TypeMismatch(t *testing.T) {
 	intOp := DefineOp[string, int]("give_int")
 	cfg := Config{
-		OnCall: func(req any, p *Promise[any]) {
-			// Mistakenly resolve with string instead of int
-			p.Resolve("not-an-int")
-		},
+		OnCall: []CallHandler{mismatchHandler{}},
 	}
 
 	task := Launch[adt.Unit, string](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
@@ -561,13 +578,16 @@ func TestCoroutine_Handle_MultipleTypedHandlers(t *testing.T) {
 	opA := DefineOp[int, int]("double")
 	opB := DefineOp[string, string]("upper")
 
-	cfg := Config{}
-	RegisterHandler(&cfg, opA, func(val int) adt.Result[int] {
-		return adt.OK(val * 2)
-	})
-	RegisterHandler(&cfg, opB, func(text string) adt.Result[string] {
-		return adt.OK(strings.ToUpper(text))
-	})
+	cfg := Config{
+		OnCall: []CallHandler{
+			opA.Handle(func(val int) adt.Result[int] {
+				return adt.OK(val * 2)
+			}),
+			opB.Handle(func(text string) adt.Result[string] {
+				return adt.OK(strings.ToUpper(text))
+			}),
+		},
+	}
 
 	task := Launch[adt.Unit, string](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
 		futA := co.Call(opA, 21)
@@ -584,4 +604,3 @@ func TestCoroutine_Handle_MultipleTypedHandlers(t *testing.T) {
 		t.Fatalf("expected 42:HELLO, got %v", res)
 	}
 }
-
