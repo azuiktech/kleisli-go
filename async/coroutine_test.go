@@ -257,17 +257,17 @@ func TestCoroutine_EarlyEmission_NeverLost(t *testing.T) {
 // Case A: Acknowledged emission / handshake via Call[adt.Unit].
 func TestCoroutine_CaseA_AcknowledgedEmission(t *testing.T) {
 	var order []string
+	eventOp := DefineOp[string, adt.Unit]("critical-event")
 	var mu sync.Mutex
 
-	cfg := Config{
-		OnCall: func(req any, p *Promise[any]) {
-			mu.Lock()
-			order = append(order, fmt.Sprintf("caller:processing-%v", req))
-			mu.Unlock()
-			time.Sleep(10 * time.Millisecond)
-			p.Resolve(adt.Unit{})
-		},
-	}
+	cfg := Config{}
+	RegisterHandler(&cfg, eventOp, func(req string) adt.Result[adt.Unit] {
+		mu.Lock()
+		order = append(order, fmt.Sprintf("caller:processing-%s", req))
+		mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+		return adt.OK(adt.Void)
+	})
 
 	task := Launch[adt.Unit, string](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
 		mu.Lock()
@@ -275,7 +275,7 @@ func TestCoroutine_CaseA_AcknowledgedEmission(t *testing.T) {
 		mu.Unlock()
 
 		// Acknowledged emission: waits for caller to complete processing
-		co.Call[adt.Unit]("critical-event").Await()
+		co.Call(eventOp, "critical-event").Await()
 
 		mu.Lock()
 		order = append(order, "callee:after-ack")
@@ -337,30 +337,29 @@ func TestCoroutine_CaseCD_AsyncInternal(t *testing.T) {
 
 // Case E & F: External bidirectional requests (coupled and decoupled).
 func TestCoroutine_CaseEF_CallExternal(t *testing.T) {
-	type WeatherReq struct{ City string }
 	type WeatherReport struct{ Temp int }
+	type WeatherReq struct{ City string }
 
-	cfg := Config{
-		OnCall: func(req any, p *Promise[any]) {
-			if r, ok := req.(WeatherReq); ok {
-				switch r.City {
-				case "NYC":
-					p.Resolve(WeatherReport{Temp: 72})
-				case "LON":
-					p.Resolve(WeatherReport{Temp: 55})
-				}
-				return
-			}
-			p.Reject(errors.New("unknown request"))
-		},
-	}
+	weatherOp := DefineOp[WeatherReq, WeatherReport]("weather")
+
+	cfg := Config{}
+	RegisterHandler(&cfg, weatherOp, func(r WeatherReq) adt.Result[WeatherReport] {
+		switch r.City {
+		case "NYC":
+			return adt.OK(WeatherReport{Temp: 72})
+		case "LON":
+			return adt.OK(WeatherReport{Temp: 55})
+		default:
+			return adt.Err[WeatherReport](errors.New("unknown request"))
+		}
+	})
 
 	task := Launch[adt.Unit, string](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
-		// Case E: Coupled Call + Await
-		r1 := co.Call[WeatherReport](WeatherReq{City: "NYC"}).Await().MustGet()
+		// Case E: Coupled Call + Await (type inferred!)
+		r1 := co.Call(weatherOp, WeatherReq{City: "NYC"}).Await().MustGet()
 
-		// Case F: Decoupled Call ... Await
-		tok := co.Call[WeatherReport](WeatherReq{City: "LON"})
+		// Case F: Decoupled Call ... Await (type inferred!)
+		tok := co.Call(weatherOp, WeatherReq{City: "LON"})
 		r2 := tok.Await().MustGet()
 
 		return adt.OK(fmt.Sprintf("NYC: %d, LON: %d", r1.Temp, r2.Temp))
@@ -380,29 +379,31 @@ func TestCoroutine_Call_DecoupledNonBlocking(t *testing.T) {
 	allowReq1ToFinish := make(chan struct{})
 	lineBReached := make(chan struct{})
 
-	cfg := Config{
-		OnCall: func(req any, p *Promise[any]) {
-			switch req.(string) {
-			case "req1":
-				close(req1Started)
-				// Block req1 until allowReq1ToFinish is closed
-				<-allowReq1ToFinish
-				p.Resolve("resp1")
-			case "req2":
-				p.Resolve("resp2")
-			}
-		},
-	}
+	strOp := DefineOp[string, string]("str_req")
+
+	cfg := Config{}
+	RegisterHandler(&cfg, strOp, func(req string) adt.Result[string] {
+		switch req {
+		case "req1":
+			close(req1Started)
+			<-allowReq1ToFinish
+			return adt.OK("resp1")
+		case "req2":
+			return adt.OK("resp2")
+		default:
+			return adt.Err[string](errors.New("unknown"))
+		}
+	})
 
 	task := Launch[adt.Unit, string](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
-		// Line A: Call req1 which blocks in OnCall
-		tok1 := co.Call[string]("req1")
+		// Line A: Call req1 which blocks in handler
+		tok1 := co.Call(strOp, "req1")
 
-		// Ensure OnCall for req1 has started and is currently blocked
+		// Ensure handler for req1 has started and is currently blocked
 		<-req1Started
 
 		// Line B: Must be reached immediately without waiting for req1 to finish!
-		tok2 := co.Call[string]("req2")
+		tok2 := co.Call(strOp, "req2")
 		close(lineBReached)
 
 		// Unblock req1 now
@@ -428,6 +429,7 @@ func TestCoroutine_Call_DecoupledNonBlocking(t *testing.T) {
 }
 
 func TestCoroutine_Call_TypeMismatch(t *testing.T) {
+	intOp := DefineOp[string, int]("give_int")
 	cfg := Config{
 		OnCall: func(req any, p *Promise[any]) {
 			// Mistakenly resolve with string instead of int
@@ -436,7 +438,7 @@ func TestCoroutine_Call_TypeMismatch(t *testing.T) {
 	}
 
 	task := Launch[adt.Unit, string](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
-		res := co.Call[int]("give-me-int").Await()
+		res := co.Call(intOp, "give-me-int").Await()
 		if res.IsOK() {
 			return adt.OK("unexpected-ok")
 		}
@@ -453,8 +455,9 @@ func TestCoroutine_Call_TypeMismatch(t *testing.T) {
 }
 
 func TestCoroutine_Call_NoHandler(t *testing.T) {
+	intOp := DefineOp[string, int]("req_op")
 	task := Launch[adt.Unit, string](Config{}, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
-		res := co.Call[int]("req").Await()
+		res := co.Call(intOp, "req").Await()
 		if res.IsErr() {
 			return adt.OK("handled-no-listener")
 		}
@@ -551,6 +554,34 @@ func TestCoroutine_TaskCancel_ConcurrentAwaitAndCancel(t *testing.T) {
 		if !cancelResult {
 			t.Fatalf("task.Cancel returned false during concurrent Await")
 		}
+	}
+}
+
+func TestCoroutine_Handle_MultipleTypedHandlers(t *testing.T) {
+	opA := DefineOp[int, int]("double")
+	opB := DefineOp[string, string]("upper")
+
+	cfg := Config{}
+	RegisterHandler(&cfg, opA, func(val int) adt.Result[int] {
+		return adt.OK(val * 2)
+	})
+	RegisterHandler(&cfg, opB, func(text string) adt.Result[string] {
+		return adt.OK(strings.ToUpper(text))
+	})
+
+	task := Launch[adt.Unit, string](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
+		futA := co.Call(opA, 21)
+		futB := co.Call(opB, "hello")
+
+		ansA := futA.Await().MustGet()
+		ansB := futB.Await().MustGet()
+
+		return adt.OK(fmt.Sprintf("%d:%s", ansA, ansB))
+	})
+
+	res := task.Await()
+	if res.IsErr() || res.MustGet() != "42:HELLO" {
+		t.Fatalf("expected 42:HELLO, got %v", res)
 	}
 }
 

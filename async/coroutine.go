@@ -15,11 +15,61 @@ var (
 	}
 )
 
+// Op represents a strongly-typed operation mapping a request of type Req to a response of type Resp.
+type Op[Req, Resp any] struct {
+	name string
+}
+
+// Name returns the operation's identifier.
+func (o Op[Req, Resp]) Name() string { return o.name }
+
+// DefineOp creates a strongly-typed operation mapping request Req to response Resp.
+func DefineOp[Req, Resp any](name string) Op[Req, Resp] {
+	return Op[Req, Resp]{name: adt.Opt(name).Filter(func(s string) bool { return s != "" }).OrElseGet(func() string {
+		return fmt.Sprintf("%T->%T", *new(Req), *new(Resp))
+	})}
+}
+
+// CallInvocation packages an operation with its request payload for dispatch.
+type CallInvocation struct {
+	OpName string
+	Req    any
+}
+
+func (c CallInvocation) String() string {
+	return fmt.Sprintf("%s(%v)", c.OpName, c.Req)
+}
+
 // Config configures the context and listeners for a launched coroutine.
 type Config struct {
 	Context context.Context
 	OnEmit  func(val any)
 	OnCall  func(req any, p *Promise[any])
+}
+
+// RegisterHandler registers a strongly-typed handler on Config for a specific Op[Req, Resp].
+func RegisterHandler[Req, Resp any](cfg *Config, op Op[Req, Resp], fn func(req Req) adt.Result[Resp]) {
+	prev := cfg.OnCall
+	cfg.OnCall = func(raw any, p *Promise[any]) {
+		if inv, ok := raw.(CallInvocation); ok && inv.OpName == op.name {
+			if typedReq, ok := inv.Req.(Req); ok {
+				fn(typedReq).Fold(
+					func(resp Resp) adt.Unit {
+						p.Resolve(resp)
+						return adt.Void
+					},
+					func(err error) adt.Unit {
+						p.Reject(err)
+						return adt.Void
+					},
+				)
+				return
+			}
+		}
+		if prev != nil {
+			prev(raw, p)
+		}
+	}
 }
 
 // Co is the execution and communication scope passed to the coroutine function.
@@ -43,32 +93,33 @@ func (c *Co) Async[R any](fn func(ctx context.Context) adt.Result[R]) *Future[R]
 	return fut
 }
 
-// Call sends a bidirectional request to the caller's OnCall listener, returning a Future.
-func (c *Co) Call[R any](req any) *Future[R] {
-	promR, futR := NewPromise[R](c)
+// Call sends a bidirectional request for operation op, returning a Future.
+// Both the request type Req and response type Resp are strictly bound to op.
+func (c *Co) Call[Req, Resp any](op Op[Req, Resp], req Req) *Future[Resp] {
+	promResp, futResp := NewPromise[Resp](c)
 	promAny, futAny := NewPromise[any](c)
 	go func() {
-		defer settlePanic(promR)
-		c.onCallFn(req, promAny)
+		defer settlePanic(promResp)
+		c.onCallFn(CallInvocation{OpName: op.Name(), Req: req}, promAny)
 		futAny.Await().Fold(
 			func(val any) adt.Unit {
-				v, ok := val.(R)
+				v, ok := val.(Resp)
 				adt.FromOk(v, ok).Fold(
-					promR.Resolve,
+					promResp.Resolve,
 					func() bool {
-						var zero R
-						return promR.Reject(fmt.Errorf("call response type mismatch: expected %T, got %T", zero, val))
+						var zero Resp
+						return promResp.Reject(fmt.Errorf("call response type mismatch: expected %T, got %T", zero, val))
 					},
 				)
 				return adt.Void
 			},
 			func(err error) adt.Unit {
-				promR.Reject(err)
+				promResp.Reject(err)
 				return adt.Void
 			},
 		)
 	}()
-	return futR
+	return futResp
 }
 
 // Task represents a packaged task (akin to std::packaged_task<O(I)>)

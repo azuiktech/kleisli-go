@@ -16,11 +16,19 @@ type Temperature struct {
 	Value float64
 }
 
+// WeatherQuery requests a temperature measurement for a city.
+type WeatherQuery struct {
+	City string
+}
+
+// QueryWeather defines the strongly-typed operation: WeatherQuery -> string
+var QueryWeather = async.DefineOp[WeatherQuery, string]("query_weather")
+
 // RunSingleWeatherQuery demonstrates:
 // 1. Task launches with Config containing context and callbacks.
 // 2. Coroutine emits Temperature query to caller (Case B).
 // 3. Coroutine calls caller for measurement value and suspends (Case E).
-// 4. Caller responds with measurement "25" via *Promise[any].
+// 4. Caller responds with measurement "25" via strongly typed handler.
 // 5. Task completes with final text.
 func RunSingleWeatherQuery(ctx context.Context, logs *[]string) string {
 	var mu sync.Mutex
@@ -43,19 +51,19 @@ func RunSingleWeatherQuery(ctx context.Context, logs *[]string) string {
 			t := val.(Temperature)
 			log(fmt.Sprintf("Caller Received Emit: City=%s", t.City))
 		},
-		OnCall: func(req any, p *async.Promise[any]) {
-			input2 := "25"
-			log(fmt.Sprintf("Caller Input (Measurement): %s", input2))
-			p.Resolve(input2)
-		},
 	}
+	async.RegisterHandler(&cfg, QueryWeather, func(q WeatherQuery) adt.Result[string] {
+		input2 := "25"
+		log(fmt.Sprintf("Caller Input (Measurement): %s", input2))
+		return adt.OK(input2)
+	})
 
 	task := async.Launch[string, string](cfg, city, func(co *async.Co, inCity string) adt.Result[string] {
 		// Emit query to caller
 		co.Emit(Temperature{City: inCity})
 
 		// Suspend and ask caller for temperature measurement
-		tempVal := co.Call[string](inCity).Await().MustGet()
+		tempVal := co.Call(QueryWeather, WeatherQuery{City: inCity}).Await().MustGet()
 
 		return adt.OK(fmt.Sprintf("%s temperature is %s deg", inCity, tempVal))
 	})
@@ -85,15 +93,17 @@ func RunMultiWeatherPipelined(ctx context.Context, logs *[]string) string {
 			t := val.(Temperature)
 			log(fmt.Sprintf("Caller Observed Emit: City=%s", t.City))
 		},
-		OnCall: func(req any, p *async.Promise[any]) {
-			switch req.(string) {
-			case "bangalore":
-				p.Resolve("25")
-			case "SF":
-				p.Resolve("23")
-			}
-		},
 	}
+	async.RegisterHandler(&cfg, QueryWeather, func(q WeatherQuery) adt.Result[string] {
+		switch q.City {
+		case "bangalore":
+			return adt.OK("25")
+		case "SF":
+			return adt.OK("23")
+		default:
+			return adt.Err[string](fmt.Errorf("unknown city: %s", q.City))
+		}
+	})
 
 	task := async.Launch[adt.Unit, string](cfg, adt.Void, func(co *async.Co, _ adt.Unit) adt.Result[string] {
 		// Emit cities to caller
@@ -101,8 +111,8 @@ func RunMultiWeatherPipelined(ctx context.Context, logs *[]string) string {
 		co.Emit(Temperature{City: "SF"})
 
 		// Call for measurements
-		t1 := co.Call[string]("bangalore").Await().MustGet()
-		t2 := co.Call[string]("SF").Await().MustGet()
+		t1 := co.Call(QueryWeather, WeatherQuery{City: "bangalore"}).Await().MustGet()
+		t2 := co.Call(QueryWeather, WeatherQuery{City: "SF"}).Await().MustGet()
 
 		return adt.OK(fmt.Sprintf("bangalore temperature is %s deg & SF %s deg", t1, t2))
 	})
