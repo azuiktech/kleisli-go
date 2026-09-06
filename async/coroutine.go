@@ -23,22 +23,19 @@ type Config struct {
 }
 
 // Co is the execution and communication scope passed to the coroutine function.
-type Co[I, O any] struct {
-	ctx      context.Context
-	cancel   context.CancelCauseFunc
+// It embeds context.Context directly so it satisfies the context.Context interface.
+type Co struct {
+	context.Context
 	onEmitFn func(any)
 	onCallFn func(any, *Promise[any])
 }
 
-// Context returns the execution context of the coroutine.
-func (c *Co[I, O]) Context() context.Context { return c.ctx }
-
 // Emit sends a fire-and-forget notification directly to the caller's OnEmit listener.
-func (c *Co[I, O]) Emit(val any) { c.onEmitFn(val) }
+func (c *Co) Emit(val any) { c.onEmitFn(val) }
 
 // Async spawns an asynchronous computation as a child of this coroutine, returning a Future.
-func (c *Co[I, O]) Async[R any](fn func(ctx context.Context) adt.Result[R]) *Future[R] {
-	prom, fut := NewPromise[R](c.ctx)
+func (c *Co) Async[R any](fn func(ctx context.Context) adt.Result[R]) *Future[R] {
+	prom, fut := NewPromise[R](c)
 	go func() {
 		defer settlePanic(prom)
 		fn(fut.Context()).Fold(prom.Resolve, prom.Reject)
@@ -47,11 +44,12 @@ func (c *Co[I, O]) Async[R any](fn func(ctx context.Context) adt.Result[R]) *Fut
 }
 
 // Call sends a bidirectional request to the caller's OnCall listener, returning a Future.
-func (c *Co[I, O]) Call[R any](req any) *Future[R] {
-	promR, futR := NewPromise[R](c.ctx)
-	promAny, futAny := NewPromise[any](c.ctx)
-	c.onCallFn(req, promAny)
+func (c *Co) Call[R any](req any) *Future[R] {
+	promR, futR := NewPromise[R](c)
+	promAny, futAny := NewPromise[any](c)
 	go func() {
+		defer settlePanic(promR)
+		c.onCallFn(req, promAny)
 		futAny.Await().Fold(
 			func(val any) adt.Unit {
 				v, ok := val.(R)
@@ -73,38 +71,41 @@ func (c *Co[I, O]) Call[R any](req any) *Future[R] {
 	return futR
 }
 
-// Task is the caller-side driver for a launched coroutine.
+// Task represents a packaged task (akin to std::packaged_task<O(I)>)
+// that pairs a callable function with a Future handle and deferred execution.
 type Task[I, O any] struct {
 	fut *Future[O]
-	co  *Co[I, O]
+	run func(I) adt.Result[O]
 }
 
-// Launch spawns a coroutine configured with the given Config and function.
-func Launch[I, O any](cfg Config, fn func(*Co[I, O]) adt.Result[O]) *Task[I, O] {
-	baseCtx := adt.Opt(cfg.Context).OrElse(context.Background())
-	coCtx, coCancel := context.WithCancelCause(baseCtx)
-	prom, fut := NewPromise[O](coCtx)
-
-	co := &Co[I, O]{
-		ctx:      coCtx,
-		cancel:   coCancel,
+// PackagedTask packages the coroutine function and configuration without executing it.
+func PackagedTask[I, O any](cfg Config, fn func(*Co, I) adt.Result[O]) *Task[I, O] {
+	prom, fut := NewPromise[O](cfg.Context)
+	co := &Co{
+		Context:  fut.Context(),
 		onEmitFn: adt.Opt(cfg.OnEmit).OrElse(noopEmit),
 		onCallFn: adt.Opt(cfg.OnCall).OrElse(noopCall),
 	}
-
-	task := &Task[I, O]{
+	return &Task[I, O]{
 		fut: fut,
-		co:  co,
+		run: func(in I) adt.Result[O] {
+			defer settlePanic(prom)
+			fn(co, in).Fold(prom.Resolve, prom.Reject)
+			return fut.Await()
+		},
 	}
+}
 
-	go func() {
-		defer coCancel(context.Canceled)
-		defer settlePanic(prom)
-		fn(co).Fold(prom.Resolve, prom.Reject)
-	}()
-
+// Launch packages and immediately executes the task on a new goroutine.
+func Launch[I, O any](cfg Config, in I, fn func(*Co, I) adt.Result[O]) *Task[I, O] {
+	task := PackagedTask[I, O](cfg, fn)
+	go task.Run(in)
 	return task
 }
+
+// Run executes the packaged task with the given input.
+// It can be invoked synchronously on the current goroutine, or submitted to a worker pool / goroutine.
+func (t *Task[I, O]) Run(in I) adt.Result[O] { return t.run(in) }
 
 // Future returns the read-only Future handle.
 func (t *Task[I, O]) Future() *Future[O] { return t.fut }
@@ -117,17 +118,10 @@ func (t *Task[I, O]) AwaitCtx(ctx context.Context) adt.Result[O] { return t.fut.
 
 // Cancel cancels the coroutine with the given cause.
 // Returns true if this call cancelled the coroutine, or false if already settled.
-func (t *Task[I, O]) Cancel(cause error) bool {
-	err := adt.Opt(cause).OrElse(context.Canceled)
-	cancelled := t.fut.Cancel(err)
-	adt.FromOk(t.co.cancel, cancelled).Tap(func(cancel context.CancelCauseFunc) {
-		cancel(err)
-	})
-	return cancelled
-}
+func (t *Task[I, O]) Cancel(cause error) bool { return t.fut.Cancel(cause) }
 
 // Context returns the context of the coroutine.
-func (t *Task[I, O]) Context() context.Context { return t.co.ctx }
+func (t *Task[I, O]) Context() context.Context { return t.fut.Context() }
 
 func settlePanic[T any](p *Promise[T]) {
 	adt.Opt(recover()).Tap(func(r any) {

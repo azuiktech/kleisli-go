@@ -50,14 +50,14 @@ func RunSingleWeatherQuery(ctx context.Context, logs *[]string) string {
 		},
 	}
 
-	task := async.Launch[adt.Unit, string](cfg, func(co *async.Co[adt.Unit, string]) adt.Result[string] {
+	task := async.Launch[string, string](cfg, city, func(co *async.Co, inCity string) adt.Result[string] {
 		// Emit query to caller
-		co.Emit(Temperature{City: city})
+		co.Emit(Temperature{City: inCity})
 
 		// Suspend and ask caller for temperature measurement
-		tempVal := co.Call[string](city).Await().MustGet()
+		tempVal := co.Call[string](inCity).Await().MustGet()
 
-		return adt.OK(fmt.Sprintf("%s temperature is %s deg", city, tempVal))
+		return adt.OK(fmt.Sprintf("%s temperature is %s deg", inCity, tempVal))
 	})
 
 	finalResult := task.Await().MustGet()
@@ -95,7 +95,7 @@ func RunMultiWeatherPipelined(ctx context.Context, logs *[]string) string {
 		},
 	}
 
-	task := async.Launch[adt.Unit, string](cfg, func(co *async.Co[adt.Unit, string]) adt.Result[string] {
+	task := async.Launch[adt.Unit, string](cfg, adt.Void, func(co *async.Co, _ adt.Unit) adt.Result[string] {
 		// Emit cities to caller
 		co.Emit(Temperature{City: "bangalore"})
 		co.Emit(Temperature{City: "SF"})
