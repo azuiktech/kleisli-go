@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/azuiktech/kleisli-go/adt"
 	"github.com/azuiktech/kleisli-go/async"
@@ -17,120 +16,101 @@ type Temperature struct {
 	Value float64
 }
 
-// RunSingleWeatherQuery demonstrates Example 1 (Typed Promise & Task):
-// 1. Task launches with typed Promise[string] context.
-// 2. Task yields/emits Temperature query and suspends waiting for measurement string.
-// 3. Caller feeds measurement "25".
-// 4. Task completes with final text.
+// RunSingleWeatherQuery demonstrates:
+// 1. Task launches with Config containing context and callbacks.
+// 2. Coroutine emits Temperature query to caller (Case B).
+// 3. Coroutine calls caller for measurement value and suspends (Case E).
+// 4. Caller responds with measurement "25" via *Promise[any].
+// 5. Task completes with final text.
 func RunSingleWeatherQuery(ctx context.Context, logs *[]string) string {
 	var mu sync.Mutex
 	log := func(msg string) {
 		mu.Lock()
 		defer mu.Unlock()
-		if logs != nil {
-			*logs = append(*logs, msg)
-		}
+		adt.Opt(logs).Tap(func(l *[]string) {
+			*l = append(*l, msg)
+		})
 		fmt.Println(msg)
 	}
 
-	task := async.Launch(ctx, func(p *async.Promise[string]) adt.Result[string] {
-		query := p.Receive().OrElse("")
-		city := parseCity(query)
+	city := "bangalore"
+	input1 := "what is temperature of bangalore ?"
+	log(fmt.Sprintf("Caller Input: %s", input1))
 
+	cfg := async.Config{
+		Context: ctx,
+		OnEmit: func(val any) {
+			t := val.(Temperature)
+			log(fmt.Sprintf("Caller Received Emit: City=%s", t.City))
+		},
+		OnCall: func(req any, p *async.Promise[any]) {
+			input2 := "25"
+			log(fmt.Sprintf("Caller Input (Measurement): %s", input2))
+			p.Resolve(input2)
+		},
+	}
+
+	task := async.Launch[adt.Unit, string](cfg, func(co *async.Co[adt.Unit, string]) adt.Result[string] {
 		// Emit query to caller
-		p.Emit( Temperature{City: city})
+		co.Emit(Temperature{City: city})
 
-		// Suspend and wait for temperature value
-		tempVal := p.Receive().OrElse("")
+		// Suspend and ask caller for temperature measurement
+		tempVal := co.Call[string](city).Await().MustGet()
 
 		return adt.OK(fmt.Sprintf("%s temperature is %s deg", city, tempVal))
 	})
 
-	task.OnEmit(func(val any) {
-		t := val.(Temperature)
-		log(fmt.Sprintf("Caller Received Emit: City=%s", t.City))
-	})
-
-	// 1. Send query
-	input1 := "what is temperature of bangalore ?"
-	log(fmt.Sprintf("Caller Input: %s", input1))
-	task.Send(input1)
-
-	time.Sleep(10 * time.Millisecond)
-
-	// 2. Send measurement
-	input2 := "25"
-	log(fmt.Sprintf("Caller Input (Measurement): %s", input2))
-	task.Send(input2)
-
-	// 3. Await final output
 	finalResult := task.Await().MustGet()
 	log(fmt.Sprintf("Caller Received Final Output: %s", finalResult))
 
 	return finalResult
 }
 
-// RunMultiWeatherPipelined demonstrates Example 2:
-// Pipelined multi-city query with asynchronous OnDone.
+// RunMultiWeatherPipelined demonstrates:
+// Multiple emissions and calls in a coroutine workflow configured via Config.
 func RunMultiWeatherPipelined(ctx context.Context, logs *[]string) string {
 	var mu sync.Mutex
 	log := func(msg string) {
 		mu.Lock()
 		defer mu.Unlock()
-		if logs != nil {
-			*logs = append(*logs, msg)
-		}
+		adt.Opt(logs).Tap(func(l *[]string) {
+			*l = append(*l, msg)
+		})
 		fmt.Println(msg)
 	}
 
-	task := async.Launch(ctx, func(p *async.Promise[string]) adt.Result[string] {
-		// Read cities
-		c1 := parseCity(p.Receive().OrElse(""))
-		p.Emit( Temperature{City: c1})
-
-		c2 := parseCity(p.Receive().OrElse(""))
-		p.Emit( Temperature{City: c2})
-
-		// Read measurements
-		t1 := p.Receive().OrElse("")
-		t2 := p.Receive().OrElse("")
-
-		return adt.OK(fmt.Sprintf("%s temperature is %s deg & %s %s deg", c1, t1, c2, t2))
-	})
-
-	task.OnEmit(func(val any) {
-		t := val.(Temperature)
-		log(fmt.Sprintf("Caller Observed Emit: City=%s", t.City))
-	})
-
-	var wg sync.WaitGroup
-	var finalOutput string
-	wg.Add(1)
-
-	task.OnDone(func(res adt.Result[string]) {
-		defer wg.Done()
-		if res.IsOK() {
-			finalOutput = res.MustGet()
-			log(fmt.Sprintf("Caller Observed Final Output: %s", finalOutput))
-		}
-	})
-
-	// Caller pushes all inputs in a loop without waiting
-	inputs := []string{
-		"what is temperature of bangalore ?",
-		"what is temperature of SF ?",
-		"25",
-		"23",
+	cfg := async.Config{
+		Context: ctx,
+		OnEmit: func(val any) {
+			t := val.(Temperature)
+			log(fmt.Sprintf("Caller Observed Emit: City=%s", t.City))
+		},
+		OnCall: func(req any, p *async.Promise[any]) {
+			switch req.(string) {
+			case "bangalore":
+				p.Resolve("25")
+			case "SF":
+				p.Resolve("23")
+			}
+		},
 	}
 
-	for _, in := range inputs {
-		log(fmt.Sprintf("Caller Sent: %s", in))
-		task.Send(in)
-		time.Sleep(5 * time.Millisecond)
-	}
+	task := async.Launch[adt.Unit, string](cfg, func(co *async.Co[adt.Unit, string]) adt.Result[string] {
+		// Emit cities to caller
+		co.Emit(Temperature{City: "bangalore"})
+		co.Emit(Temperature{City: "SF"})
 
-	wg.Wait()
-	return finalOutput
+		// Call for measurements
+		t1 := co.Call[string]("bangalore").Await().MustGet()
+		t2 := co.Call[string]("SF").Await().MustGet()
+
+		return adt.OK(fmt.Sprintf("bangalore temperature is %s deg & SF %s deg", t1, t2))
+	})
+
+	finalResult := task.Await().MustGet()
+	log(fmt.Sprintf("Caller Observed Final Output: %s", finalResult))
+
+	return finalResult
 }
 
 func parseCity(query string) string {

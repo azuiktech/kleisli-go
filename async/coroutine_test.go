@@ -2,6 +2,7 @@ package async
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -11,375 +12,345 @@ import (
 	"github.com/azuiktech/kleisli-go/adt"
 )
 
-func TestTask_TypedSendAndReceive(t *testing.T) {
-	ctx := context.Background()
-
-	task := Launch(ctx, func(p *Promise[int]) adt.Result[string] {
-		a := p.Receive().OrElse(0)
-		b := p.Receive().OrElse(0)
-		return adt.OK(fmt.Sprintf("sum: %d", a+b))
+func TestCoroutine_BasicReturn(t *testing.T) {
+	task := Launch[adt.Unit, string](Config{}, func(co *Co[adt.Unit, string]) adt.Result[string] {
+		return adt.OK("hello world")
 	})
-
-	time.Sleep(10 * time.Millisecond)
-	if !task.Send(10) {
-		t.Error("expected Send to return true")
-	}
-	time.Sleep(10 * time.Millisecond)
-	if !task.Send(25) {
-		t.Error("expected Send to return true")
-	}
 
 	res := task.Await()
 	if res.IsErr() {
-		t.Fatalf("unexpected error: %v", res.MustErr())
+		t.Fatalf("expected OK, got: %v", res.MustErr())
 	}
-	if res.MustGet() != "sum: 35" {
-		t.Errorf("got %q, want %q", res.MustGet(), "sum: 35")
-	}
-	if task.Send(99) {
-		t.Error("expected Send to closed task to return false")
+	if res.MustGet() != "hello world" {
+		t.Errorf("got %q, want %q", res.MustGet(), "hello world")
 	}
 }
 
-func TestTask_Yield_AtomicEmitReceive(t *testing.T) {
-	ctx := context.Background()
+func TestCoroutine_PanicRecovery(t *testing.T) {
+	for range 100 {
+		task := Launch[adt.Unit, string](Config{}, func(co *Co[adt.Unit, string]) adt.Result[string] {
+			panic("boom")
+		})
 
-	task := Launch(ctx, func(p *Promise[string]) adt.Result[string] {
-		name := p.Yield( "what is your name?").OrElse("")
-		city := p.Yield( "what is your city?").OrElse("")
-		return adt.OK(fmt.Sprintf("%s from %s", name, city))
-	})
+		res := task.Await()
+		if res.IsOK() {
+			t.Fatalf("expected Err on panic, got OK: %v", res.MustGet())
+		}
+		if !strings.Contains(res.MustErr().Error(), "boom") {
+			t.Errorf("expected error containing 'boom', got: %v", res.MustErr())
+		}
+	}
+}
 
-	var emitted []any
+// Case B: Pure fire-and-forget push. Callee emits without waiting.
+func TestCoroutine_CaseB_FireAndForgetEmit(t *testing.T) {
+	var observed []int
 	var mu sync.Mutex
-	task.OnEmit(func(val any) {
-		mu.Lock()
-		defer mu.Unlock()
-		emitted = append(emitted, val)
-	})
 
-	time.Sleep(10 * time.Millisecond)
-	task.Send("Alice")
-	time.Sleep(10 * time.Millisecond)
-	task.Send("Bangalore")
+	cfg := Config{
+		OnEmit: func(val any) {
+			mu.Lock()
+			defer mu.Unlock()
+			if i, ok := val.(int); ok {
+				observed = append(observed, i)
+			}
+		},
+	}
+
+	task := Launch[adt.Unit, string](cfg, func(co *Co[adt.Unit, string]) adt.Result[string] {
+		co.Emit(1)
+		co.Emit(2)
+		co.Emit(3)
+		return adt.OK("emitted")
+	})
 
 	res := task.Await()
-	if res.IsErr() || res.MustGet() != "Alice from Bangalore" {
-		t.Errorf("got %v, want 'Alice from Bangalore'", res)
+	if res.IsErr() || res.MustGet() != "emitted" {
+		t.Fatalf("unexpected task result: %v", res)
 	}
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(emitted) != 2 || emitted[0] != "what is your name?" || emitted[1] != "what is your city?" {
-		t.Errorf("emitted = %v", emitted)
+	if len(observed) != 3 || observed[0] != 1 || observed[1] != 2 || observed[2] != 3 {
+		t.Errorf("got emissions %v, want [1, 2, 3]", observed)
 	}
 }
 
-func TestTask_MonadicChaining(t *testing.T) {
-	ctx := context.Background()
+func TestCoroutine_EarlyEmission_NeverLost(t *testing.T) {
+	received := make(chan int, 3)
 
-	base := Launch(ctx, func(p *Promise[int]) adt.Result[int] {
-		x := p.Receive().OrElse(0)
-		return adt.OK(x * 2)
-	})
-
-	mapped := base.Map(func(n int) string {
-		return fmt.Sprintf("result: %d", n)
-	})
-
-	flatMapped := mapped.FlatMap(func(s string) *Task[int, string] {
-		return Launch(ctx, func(p *Promise[int]) adt.Result[string] {
-			return adt.OK(s + "!")
-		})
-	})
-
-	finalTask := flatMapped.Then(func(s string) (string, error) {
-		return "[" + s + "]", nil
-	})
-
-	time.Sleep(10 * time.Millisecond)
-	base.Send(21)
-
-	res := finalTask.Await()
-	if res.IsErr() {
-		t.Fatalf("unexpected error in chaining: %v", res.MustErr())
-	}
-	if res.MustGet() != "[result: 42!]" {
-		t.Errorf("got %q, want '[result: 42!]'", res.MustGet())
-	}
-}
-
-func TestTask_AwaitTimeout(t *testing.T) {
-	ctx := context.Background()
-
-	task := Launch(ctx, func(p *Promise[int]) adt.Result[int] {
-		time.Sleep(100 * time.Millisecond)
-		return adt.OK(42)
-	})
-
-	res := task.AwaitTimeout(10 * time.Millisecond)
-	if res.IsOK() {
-		t.Errorf("expected timeout error, got %v", res.MustGet())
+	cfg := Config{
+		OnEmit: func(val any) {
+			received <- val.(int)
+		},
 	}
 
-	// Task itself should NOT be cancelled and should eventually finish.
-	finalRes := task.Await()
-	if finalRes.IsErr() || finalRes.MustGet() != 42 {
-		t.Errorf("expected final result 42, got %v", finalRes)
-	}
-}
-
-func TestTask_All_ConcurrentExecution(t *testing.T) {
-	ctx := context.Background()
-	start := time.Now()
-
-	// Each task takes 50ms. Sequential total >= 150ms; concurrent total ~50ms.
-	t1 := Launch(ctx, func(p *Promise[unit]) adt.Result[int] {
-		time.Sleep(50 * time.Millisecond)
-		return adt.OK(10)
-	})
-	t2 := Launch(ctx, func(p *Promise[unit]) adt.Result[int] {
-		time.Sleep(50 * time.Millisecond)
-		return adt.OK(20)
-	})
-	t3 := Launch(ctx, func(p *Promise[unit]) adt.Result[int] {
-		time.Sleep(50 * time.Millisecond)
-		return adt.OK(30)
-	})
-
-	res := All(ctx, t1, t2, t3).Await()
-	elapsed := time.Since(start)
-
-	if res.IsErr() {
-		t.Fatalf("All failed: %v", res.MustErr())
-	}
-	vals := res.MustGet()
-	if len(vals) != 3 || vals[0] != 10 || vals[1] != 20 || vals[2] != 30 {
-		t.Errorf("vals = %v, want [10, 20, 30]", vals)
-	}
-	if elapsed >= 140*time.Millisecond {
-		t.Errorf("All executed sequentially! elapsed: %v", elapsed)
-	}
-}
-
-func TestTask_Race_CancelsLosers(t *testing.T) {
-	ctx := context.Background()
-
-	var slowCancelled sync.WaitGroup
-	slowCancelled.Add(1)
-
-	slow := Launch(ctx, func(p *Promise[unit]) adt.Result[string] {
-		select {
-		case <-time.After(300 * time.Millisecond):
-			return adt.OK("slow")
-		case <-p.Context().Done():
-			slowCancelled.Done()
-			return adt.Err[string](p.Context().Err())
-		}
-	})
-
-	fast := Launch(ctx, func(p *Promise[unit]) adt.Result[string] {
-		time.Sleep(10 * time.Millisecond)
-		return adt.OK("fast")
-	})
-
-	res := Race(ctx, slow, fast).Await()
-	if res.IsErr() || res.MustGet() != "fast" {
-		t.Errorf("Race got %v, want 'fast'", res)
-	}
-
-	done := make(chan struct{})
-	go func() { slowCancelled.Wait(); close(done) }()
-
-	select {
-	case <-done:
-	case <-time.After(100 * time.Millisecond):
-		t.Error("Race did not cancel the losing task within 100ms")
-	}
-}
-
-func TestTask_Any_FirstSuccessAndCancelsRest(t *testing.T) {
-	ctx := context.Background()
-
-	tFail := Launch(ctx, func(p *Promise[unit]) adt.Result[string] {
-		time.Sleep(10 * time.Millisecond)
-		return adt.Err[string](fmt.Errorf("task 1 failed"))
-	})
-
-	tSuccess := Launch(ctx, func(p *Promise[unit]) adt.Result[string] {
-		time.Sleep(30 * time.Millisecond)
-		return adt.OK("success from task 2")
-	})
-
-	var slowCancelled sync.WaitGroup
-	slowCancelled.Add(1)
-
-	tSlow := Launch(ctx, func(p *Promise[unit]) adt.Result[string] {
-		select {
-		case <-time.After(300 * time.Millisecond):
-			return adt.OK("slow task 3")
-		case <-p.Context().Done():
-			slowCancelled.Done()
-			return adt.Err[string](p.Context().Err())
-		}
-	})
-
-	res := Any(ctx, tFail, tSuccess, tSlow).Await()
-	if res.IsErr() {
-		t.Fatalf("Any failed unexpectedly: %v", res.MustErr())
-	}
-	if res.MustGet() != "success from task 2" {
-		t.Errorf("Any got %q, want 'success from task 2'", res.MustGet())
-	}
-
-	done := make(chan struct{})
-	go func() { slowCancelled.Wait(); close(done) }()
-
-	select {
-	case <-done:
-	case <-time.After(100 * time.Millisecond):
-		t.Error("Any did not cancel the remaining task within 100ms")
-	}
-}
-
-func TestTask_Any_AllFailed(t *testing.T) {
-	ctx := context.Background()
-
-	t1 := Launch(ctx, func(p *Promise[unit]) adt.Result[string] {
-		return adt.Err[string](fmt.Errorf("err 1"))
-	})
-	t2 := Launch(ctx, func(p *Promise[unit]) adt.Result[string] {
-		return adt.Err[string](fmt.Errorf("err 2"))
-	})
-
-	res := Any(ctx, t1, t2).Await()
-	if res.IsOK() {
-		t.Fatalf("expected Any to fail when all tasks fail, got %v", res.MustGet())
-	}
-	errMsg := res.MustErr().Error()
-	if !strings.Contains(errMsg, "err 1") || !strings.Contains(errMsg, "err 2") {
-		t.Errorf("expected combined error, got %q", errMsg)
-	}
-}
-
-func TestTask_OnEmitAs_TypedFiltering(t *testing.T) {
-	ctx := context.Background()
-
-	type CustomEvent struct{ ID int }
-
-	task := Launch(ctx, func(p *Promise[unit]) adt.Result[string] {
-		p.Emit( "string message")
-		p.Emit( CustomEvent{ID: 42})
-		p.Emit( 12345)
+	task := Launch[adt.Unit, string](cfg, func(co *Co[adt.Unit, string]) adt.Result[string] {
+		co.Emit(100)
+		co.Emit(200)
+		co.Emit(300)
 		return adt.OK("done")
 	})
 
-	var customEvents []CustomEvent
+	res := task.Await()
+	if res.IsErr() {
+		t.Fatalf("unexpected err: %v", res.MustErr())
+	}
+
+	close(received)
+	var vals []int
+	for v := range received {
+		vals = append(vals, v)
+	}
+	if len(vals) != 3 || vals[0] != 100 || vals[1] != 200 || vals[2] != 300 {
+		t.Errorf("got %v, want [100, 200, 300]", vals)
+	}
+}
+
+// Case A: Acknowledged emission / handshake via Call[adt.Unit].
+func TestCoroutine_CaseA_AcknowledgedEmission(t *testing.T) {
+	var order []string
 	var mu sync.Mutex
-	OnEmitAs(task, func(evt CustomEvent) {
+
+	cfg := Config{
+		OnCall: func(req any, p *Promise[any]) {
+			mu.Lock()
+			order = append(order, fmt.Sprintf("caller:processing-%v", req))
+			mu.Unlock()
+			time.Sleep(10 * time.Millisecond)
+			p.Resolve(adt.Unit{})
+		},
+	}
+
+	task := Launch[adt.Unit, string](cfg, func(co *Co[adt.Unit, string]) adt.Result[string] {
 		mu.Lock()
-		defer mu.Unlock()
-		customEvents = append(customEvents, evt)
+		order = append(order, "callee:before-emit")
+		mu.Unlock()
+
+		// Acknowledged emission: waits for caller to complete processing
+		co.Call[adt.Unit]("critical-event").Await()
+
+		mu.Lock()
+		order = append(order, "callee:after-ack")
+		mu.Unlock()
+
+		return adt.OK("done")
 	})
 
-	if res := task.Await(); res.IsErr() {
-		t.Fatalf("task failed: %v", res.MustErr())
+	res := task.Await()
+	if res.IsErr() {
+		t.Fatalf("expected OK, got: %v", res.MustErr())
 	}
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(customEvents) != 1 || customEvents[0].ID != 42 {
-		t.Errorf("customEvents = %v, want [{ID: 42}]", customEvents)
+	expected := []string{"callee:before-emit", "caller:processing-critical-event", "callee:after-ack"}
+	if len(order) != len(expected) {
+		t.Fatalf("got order %v, want %v", order, expected)
 	}
-}
-
-func TestTask_OnEmit_LateRegistrationReplay(t *testing.T) {
-	ctx := context.Background()
-
-	task := Launch(ctx, func(p *Promise[unit]) adt.Result[string] {
-		p.Emit( "event 1")
-		p.Emit( "event 2")
-		return adt.OK("completed")
-	})
-
-	if res := task.Await(); res.IsErr() {
-		t.Fatalf("task failed: %v", res.MustErr())
-	}
-
-	var replayed []string
-	var mu sync.Mutex
-	task.OnEmit(func(val any) {
-		mu.Lock()
-		defer mu.Unlock()
-		if s, ok := val.(string); ok {
-			replayed = append(replayed, s)
+	for i := range expected {
+		if order[i] != expected[i] {
+			t.Errorf("order[%d] = %q, want %q", i, order[i], expected[i])
 		}
-	})
-
-	mu.Lock()
-	defer mu.Unlock()
-	if len(replayed) != 2 || replayed[0] != "event 1" || replayed[1] != "event 2" {
-		t.Errorf("replayed = %v, want ['event 1', 'event 2']", replayed)
 	}
 }
 
-func TestTask_StepCancel(t *testing.T) {
-	ctx := context.Background()
+// Case C & D: Internal async tasks (coupled and decoupled).
+func TestCoroutine_CaseCD_AsyncInternal(t *testing.T) {
+	task := Launch[adt.Unit, int](Config{}, func(co *Co[adt.Unit, int]) adt.Result[int] {
+		// Case C: Coupled Call + Await
+		val1 := co.Async(func(ctx context.Context) adt.Result[int] {
+			return adt.OK(10)
+		}).Await().MustGet()
 
-	task := Launch(ctx, func(p *Promise[string]) adt.Result[string] {
-		res1 := p.ReceiveResult()
-		if res1.IsErr() {
-			res2 := p.Receive().OrElse("default")
-			return adt.OK("recovered: " + res2)
+		// Case D: Decoupled Call ... Await
+		tok1 := co.Async(func(ctx context.Context) adt.Result[int] {
+			time.Sleep(10 * time.Millisecond)
+			return adt.OK(20)
+		})
+		tok2 := co.Async(func(ctx context.Context) adt.Result[int] {
+			time.Sleep(10 * time.Millisecond)
+			return adt.OK(30)
+		})
+
+		val2 := tok1.Await().MustGet()
+		val3 := tok2.Await().MustGet()
+
+		return adt.OK(val1 + val2 + val3)
+	})
+
+	res := task.Await()
+	if res.IsErr() {
+		t.Fatalf("expected OK, got: %v", res.MustErr())
+	}
+	if res.MustGet() != 60 {
+		t.Errorf("got %d, want 60", res.MustGet())
+	}
+}
+
+// Case E & F: External bidirectional requests (coupled and decoupled).
+func TestCoroutine_CaseEF_CallExternal(t *testing.T) {
+	type WeatherReq struct{ City string }
+	type WeatherReport struct{ Temp int }
+
+	cfg := Config{
+		OnCall: func(req any, p *Promise[any]) {
+			if r, ok := req.(WeatherReq); ok {
+				switch r.City {
+				case "NYC":
+					p.Resolve(WeatherReport{Temp: 72})
+				case "LON":
+					p.Resolve(WeatherReport{Temp: 55})
+				}
+				return
+			}
+			p.Reject(errors.New("unknown request"))
+		},
+	}
+
+	task := Launch[adt.Unit, string](cfg, func(co *Co[adt.Unit, string]) adt.Result[string] {
+		// Case E: Coupled Call + Await
+		r1 := co.Call[WeatherReport](WeatherReq{City: "NYC"}).Await().MustGet()
+
+		// Case F: Decoupled Call ... Await
+		tok := co.Call[WeatherReport](WeatherReq{City: "LON"})
+		r2 := tok.Await().MustGet()
+
+		return adt.OK(fmt.Sprintf("NYC: %d, LON: %d", r1.Temp, r2.Temp))
+	})
+
+	res := task.Await()
+	if res.IsErr() {
+		t.Fatalf("expected OK, got: %v", res.MustErr())
+	}
+	if res.MustGet() != "NYC: 72, LON: 55" {
+		t.Errorf("got %q, want %q", res.MustGet(), "NYC: 72, LON: 55")
+	}
+}
+
+func TestCoroutine_Call_TypeMismatch(t *testing.T) {
+	cfg := Config{
+		OnCall: func(req any, p *Promise[any]) {
+			// Mistakenly resolve with string instead of int
+			p.Resolve("not-an-int")
+		},
+	}
+
+	task := Launch[adt.Unit, string](cfg, func(co *Co[adt.Unit, string]) adt.Result[string] {
+		res := co.Call[int]("give-me-int").Await()
+		if res.IsOK() {
+			return adt.OK("unexpected-ok")
 		}
-		return adt.OK("normal: " + res1.MustGet())
+		return adt.OK("type-mismatch-caught: " + res.MustErr().Error())
 	})
 
-	time.Sleep(10 * time.Millisecond)
-	task.CancelCurrent()
-	time.Sleep(10 * time.Millisecond)
-	task.Send("valid payload")
-
-	if res := task.Await(); res.MustGet() != "recovered: valid payload" {
-		t.Errorf("res = %q, want 'recovered: valid payload'", res.MustGet())
+	res := task.Await()
+	if res.IsErr() {
+		t.Fatalf("expected OK, got: %v", res.MustErr())
+	}
+	if !strings.Contains(res.MustGet(), "type mismatch") {
+		t.Errorf("expected type mismatch error, got: %s", res.MustGet())
 	}
 }
 
-func TestTask_CancelAll(t *testing.T) {
-	ctx := context.Background()
-
-	task := Launch(ctx, func(p *Promise[int]) adt.Result[int] {
-		_ = p.Receive()
-		return adt.OK(100)
+func TestCoroutine_Call_NoHandler(t *testing.T) {
+	task := Launch[adt.Unit, string](Config{}, func(co *Co[adt.Unit, string]) adt.Result[string] {
+		res := co.Call[int]("req").Await()
+		if res.IsErr() {
+			return adt.OK("handled-no-listener")
+		}
+		return adt.Err[string](errors.New("should have failed"))
 	})
 
-	time.Sleep(10 * time.Millisecond)
-	task.Cancel()
+	// No OnCall registered
+	res := task.Await()
+	if res.IsErr() || res.MustGet() != "handled-no-listener" {
+		t.Errorf("expected handled-no-listener, got: %v", res)
+	}
+}
+
+func TestCoroutine_Async_ChildContextCancelledOnExit(t *testing.T) {
+	childCancelled := make(chan struct{})
+
+	task := Launch[adt.Unit, string](Config{}, func(co *Co[adt.Unit, string]) adt.Result[string] {
+		// Spawn child task that sleeps until cancelled
+		co.Async(func(ctx context.Context) adt.Result[adt.Unit] {
+			<-ctx.Done()
+			close(childCancelled)
+			return adt.OK(adt.Unit{})
+		})
+		// Callee exits immediately without awaiting the child task
+		return adt.OK("parent-exited")
+	})
+
+	res := task.Await()
+	if res.IsErr() || res.MustGet() != "parent-exited" {
+		t.Fatalf("unexpected task result: %v", res)
+	}
+
+	select {
+	case <-childCancelled:
+		// Succeeded: child was cancelled when parent finished
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("child task was not cancelled when coroutine exited")
+	}
+}
+
+func TestCoroutine_TaskCancel(t *testing.T) {
+	coroutineExited := make(chan struct{})
+	customErr := errors.New("aborted by caller")
+
+	task := Launch[adt.Unit, string](Config{}, func(co *Co[adt.Unit, string]) adt.Result[string] {
+		<-co.Context().Done()
+		close(coroutineExited)
+		return adt.Err[string](context.Cause(co.Context()))
+	})
+
+	if !task.Cancel(customErr) {
+		t.Errorf("expected Cancel to return true")
+	}
+
+	select {
+	case <-coroutineExited:
+		// Succeeded: coroutine context was cancelled and goroutine exited promptly
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("coroutine goroutine leaked: co.Context() was not cancelled by task.Cancel()")
+	}
 
 	res := task.Await()
 	if res.IsOK() {
-		t.Fatalf("expected cancellation error, got %v", res.MustGet())
+		t.Fatalf("expected Err, got OK: %v", res.MustGet())
 	}
-	if !task.IsDone() {
-		t.Error("task should be marked done after cancel")
+	if !errors.Is(res.MustErr(), customErr) {
+		t.Errorf("got %v, want %v", res.MustErr(), customErr)
 	}
 }
 
-func TestTask_AwaitCancellationRaceFix(t *testing.T) {
-	// Verify that completing right before ctx cancel does not lose the result.
-	for range 50 {
-		ctx, cancel := context.WithCancel(context.Background())
-		task := Launch(ctx, func(p *Promise[unit]) adt.Result[int] {
-			return adt.OK(42)
+func TestCoroutine_TaskCancel_ConcurrentAwaitAndCancel(t *testing.T) {
+	const iters = 100
+	for range iters {
+		task := Launch[adt.Unit, string](Config{}, func(co *Co[adt.Unit, string]) adt.Result[string] {
+			<-co.Context().Done()
+			return adt.Err[string](co.Context().Err())
 		})
-		time.Sleep(1 * time.Millisecond)
-		cancel()
 
-		res := task.Await()
-		if res.IsOK() && res.MustGet() != 42 {
-			t.Errorf("unexpected value %d", res.MustGet())
+		var wg sync.WaitGroup
+		wg.Add(2)
+		var cancelResult bool
+
+		go func() {
+			defer wg.Done()
+			task.Await()
+		}()
+
+		go func() {
+			defer wg.Done()
+			cancelResult = task.Cancel(errors.New("cancel race"))
+		}()
+
+		wg.Wait()
+		if !cancelResult {
+			t.Fatalf("task.Cancel returned false during concurrent Await")
 		}
 	}
 }
-
-type unit struct{}
