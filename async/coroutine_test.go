@@ -604,3 +604,242 @@ func TestCoroutine_Handle_MultipleTypedHandlers(t *testing.T) {
 		t.Fatalf("expected 42:HELLO, got %v", res)
 	}
 }
+
+func TestCoroutine_AlternatingAsyncCall_Goroutine(t *testing.T) {
+	op1 := DefineOp[string, string]("op1")
+	op2 := DefineOp[int, int]("op2")
+
+	var (
+		mu         sync.Mutex
+		trace      []string
+		async1Runs atomic.Int32
+		call1Runs  atomic.Int32
+		async2Runs atomic.Int32
+		call2Runs  atomic.Int32
+	)
+
+	logTrace := func(s string) {
+		mu.Lock()
+		defer mu.Unlock()
+		trace = append(trace, s)
+	}
+
+	cfg := Config{
+		OnCall: []CallHandler{
+			op1.Handle(func(s string) adt.Result[string] {
+				call1Runs.Add(1)
+				logTrace("call1_exec:" + s)
+				return adt.OK("res_" + s)
+			}),
+			op2.Handle(func(n int) adt.Result[int] {
+				call2Runs.Add(1)
+				logTrace(fmt.Sprintf("call2_exec:%d", n))
+				return adt.OK(n * 2)
+			}),
+		},
+	}
+
+	workflow := func(co *Co, in string) adt.Result[string] {
+		// 1. fInitial
+		logTrace("fInitial:" + in)
+
+		// 2. Alternate: Async, Call, Async, Call
+		a1 := co.Async(func(ctx context.Context) adt.Result[string] {
+			async1Runs.Add(1)
+			logTrace("async1_exec")
+			return adt.OK("async1_done")
+		})
+
+		c1 := co.Call(op1, "c1_arg")
+
+		a2 := co.Async(func(ctx context.Context) adt.Result[string] {
+			async2Runs.Add(1)
+			logTrace("async2_exec")
+			return adt.OK("async2_done")
+		})
+
+		c2 := co.Call(op2, 21)
+
+		// 3. Await all 4
+		rA1 := a1.Await().MustGet()
+		rC1 := c1.Await().MustGet()
+		rA2 := a2.Await().MustGet()
+		rC2 := c2.Await().MustGet()
+
+		// 4. fFinal
+		logTrace("fFinal")
+
+		return adt.OK(fmt.Sprintf("%s|%s|%s|%d", rA1, rC1, rA2, rC2))
+	}
+
+	task := Launch[string, string](cfg, "start", workflow)
+	res := task.Await()
+
+	if res.IsErr() {
+		t.Fatalf("unexpected error: %v", res.MustErr())
+	}
+	expectedOutput := "async1_done|res_c1_arg|async2_done|42"
+	if res.MustGet() != expectedOutput {
+		t.Fatalf("expected output %q, got %q", expectedOutput, res.MustGet())
+	}
+
+	if async1Runs.Load() != 1 || call1Runs.Load() != 1 || async2Runs.Load() != 1 || call2Runs.Load() != 1 {
+		t.Fatalf("expected exactly 1 execution each, got a1=%d, c1=%d, a2=%d, c2=%d",
+			async1Runs.Load(), call1Runs.Load(), async2Runs.Load(), call2Runs.Load())
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(trace) < 2 || trace[0] != "fInitial:start" || trace[len(trace)-1] != "fFinal" {
+		t.Fatalf("trace order violation: %v", trace)
+	}
+}
+
+func TestCoroutine_AlternatingAsyncCall_Durable(t *testing.T) {
+	op1 := DefineOp[string, string]("op1")
+	op2 := DefineOp[int, int]("op2")
+
+	var (
+		mu          sync.Mutex
+		trace       []string
+		async1Runs  atomic.Int32
+		call1Runs   atomic.Int32
+		async2Runs  atomic.Int32
+		call2Runs   atomic.Int32
+		initialRuns atomic.Int32
+		finalRuns   atomic.Int32
+	)
+
+	logTrace := func(s string) {
+		mu.Lock()
+		defer mu.Unlock()
+		trace = append(trace, s)
+	}
+
+	handlers := []CallHandler{
+		op1.Handle(func(s string) adt.Result[string] {
+			call1Runs.Add(1)
+			logTrace("call1_exec:" + s)
+			return adt.OK("res_" + s)
+		}),
+		op2.Handle(func(n int) adt.Result[int] {
+			call2Runs.Add(1)
+			logTrace(fmt.Sprintf("call2_exec:%d", n))
+			return adt.OK(n * 2)
+		}),
+	}
+
+	workflow := func(co *Co, in string) adt.Result[string] {
+		// 1. fInitial
+		initialRuns.Add(1)
+		logTrace("fInitial:" + in)
+
+		// 2. Alternate: Async, Call, Async, Call
+		a1 := co.Async(func(ctx context.Context) adt.Result[string] {
+			async1Runs.Add(1)
+			logTrace("async1_exec")
+			return adt.OK("async1_done")
+		})
+
+		c1 := co.Call(op1, "c1_arg")
+
+		a2 := co.Async(func(ctx context.Context) adt.Result[string] {
+			async2Runs.Add(1)
+			logTrace("async2_exec")
+			return adt.OK("async2_done")
+		})
+
+		c2 := co.Call(op2, 21)
+
+		// 3. Await all 4, cleanly propagating any suspension error
+		resA1 := a1.Await()
+		if resA1.IsErr() {
+			return adt.Err[string](resA1.MustErr())
+		}
+		rA1 := resA1.MustGet()
+
+		resC1 := c1.Await()
+		if resC1.IsErr() {
+			return adt.Err[string](resC1.MustErr())
+		}
+		rC1 := resC1.MustGet()
+
+		resA2 := a2.Await()
+		if resA2.IsErr() {
+			return adt.Err[string](resA2.MustErr())
+		}
+		rA2 := resA2.MustGet()
+
+		resC2 := c2.Await()
+		if resC2.IsErr() {
+			return adt.Err[string](resC2.MustErr())
+		}
+		rC2 := resC2.MustGet()
+
+		// 4. fFinal
+		finalRuns.Add(1)
+		logTrace("fFinal")
+
+		return adt.OK(fmt.Sprintf("%s|%s|%s|%d", rA1, rC1, rA2, rC2))
+	}
+
+	journal := NewJournal()
+
+	// Simulate restarts before each of the points (turns 0, 1, 2, 3) and final run (turn 4)
+	for turn := 0; turn <= 4; turn++ {
+		durableCtx := NewDurableContext(context.Background(), journal)
+		durableCtx.SetMaxSteps(turn) // On turn i, allows execution up to i steps before suspending
+
+		cfg := Config{
+			Context: durableCtx,
+			OnCall:  handlers,
+		}
+
+		task := Launch[string, string](cfg, "start", workflow)
+		res := task.Await()
+
+		if turn < 4 {
+			// Expected to suspend with ErrSuspended
+			if !res.IsErr() || !errors.Is(res.MustErr(), ErrSuspended) {
+				t.Fatalf("turn %d: expected ErrSuspended, got %v", turn, res)
+			}
+			if journal.Len() != turn {
+				t.Fatalf("turn %d: expected journal len %d, got %d", turn, turn, journal.Len())
+			}
+		} else {
+			// Final turn: must succeed and produce the complete output
+			if res.IsErr() {
+				t.Fatalf("turn 4: unexpected error: %v", res.MustErr())
+			}
+			expectedOutput := "async1_done|res_c1_arg|async2_done|42"
+			if res.MustGet() != expectedOutput {
+				t.Fatalf("turn 4: expected output %q, got %q", expectedOutput, res.MustGet())
+			}
+		}
+	}
+
+	// VERIFY EXECUTION COUNTS:
+	// Even though 5 turns occurred, each async / call MUST execute EXACTLY ONCE!
+	if async1Runs.Load() != 1 {
+		t.Fatalf("expected async1 to execute exactly once, got %d", async1Runs.Load())
+	}
+	if call1Runs.Load() != 1 {
+		t.Fatalf("expected call1 to execute exactly once, got %d", call1Runs.Load())
+	}
+	if async2Runs.Load() != 1 {
+		t.Fatalf("expected async2 to execute exactly once, got %d", async2Runs.Load())
+	}
+	if call2Runs.Load() != 1 {
+		t.Fatalf("expected call2 to execute exactly once, got %d", call2Runs.Load())
+	}
+
+	// fInitial ran on every restart (5 times)
+	if initialRuns.Load() != 5 {
+		t.Fatalf("expected fInitial to run 5 times (on every restart), got %d", initialRuns.Load())
+	}
+
+	// fFinal ran ONLY on the final successful completion (1 time)
+	if finalRuns.Load() != 1 {
+		t.Fatalf("expected fFinal to run exactly 1 time, got %d", finalRuns.Load())
+	}
+}

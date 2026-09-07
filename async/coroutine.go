@@ -79,17 +79,16 @@ func (o Op[S, R]) Handle(fn func(s S) adt.Result[R]) CallHandler {
 
 // Config configures the context and listeners for a launched coroutine.
 type Config struct {
-	Context context.Context
-	OnEmit  func(val any)
-	OnCall  []CallHandler
+	Context Context       // Execution engine. If nil or *GoroutineContext, uses in-memory GoroutineContext
+	OnEmit  func(val any) // Universal callback handler for emissions
+	OnCall  []CallHandler // Universal operation handlers
 }
 
 // Co is the execution and communication scope passed to the coroutine function.
-// It embeds context.Context directly so it satisfies the context.Context interface.
+// It embeds Context directly so it satisfies the Context and context.Context interfaces.
 type Co struct {
-	context.Context
+	Context
 	onEmitFn func(any)
-	handlers []CallHandler
 }
 
 // Emit sends a fire-and-forget notification directly to the caller's OnEmit listener.
@@ -97,24 +96,39 @@ func (c *Co) Emit(val any) { c.onEmitFn(val) }
 
 // Async spawns an asynchronous computation as a child of this coroutine, returning a Future.
 func (c *Co) Async[R any](fn func(ctx context.Context) adt.Result[R]) *Future[R] {
-	prom, fut := NewPromise[R](c)
+	promR, futR := NewPromise[R](c)
+	futAny := c.Context.Async(func(ctx context.Context) adt.Result[any] {
+		return fn(ctx).Map(func(r R) any { return any(r) })
+	})
 	go func() {
-		defer settlePanic(prom)
-		fn(fut.Context()).Fold(prom.Resolve, prom.Reject)
+		defer settlePanic(promR)
+		futAny.Await().Fold(
+			func(val any) adt.Unit {
+				v, ok := val.(R)
+				adt.FromOk(v, ok).Fold(
+					promR.Resolve,
+					func() bool {
+						var zero R
+						return promR.Reject(fmt.Errorf("async result type mismatch: expected %T, got %T", zero, val))
+					},
+				)
+				return adt.Void
+			},
+			func(err error) adt.Unit {
+				promR.Reject(err)
+				return adt.Void
+			},
+		)
 	}()
-	return fut
+	return futR
 }
 
 // Call suspends the coroutine with payload s for operation op, returning a Future that resolves upon resumption with R.
 func (c *Co) Call[S, R any](op Op[S, R], s S) *Future[R] {
 	promR, futR := NewPromise[R](c)
-	promAny, futAny := NewPromise[any](c)
+	futAny := c.Context.Call(op.Name(), s)
 	go func() {
 		defer settlePanic(promR)
-		inv := CallInvocation{OpName: op.Name(), S: s}
-		if !dispatchCall(c.handlers, inv, promAny) {
-			promAny.Reject(fmt.Errorf("no handler registered for operation: %s", inv.OpName))
-		}
 		futAny.Await().Fold(
 			func(val any) adt.Unit {
 				v, ok := val.(R)
@@ -154,11 +168,25 @@ type Task[I, O any] struct {
 
 // PackagedTask packages the coroutine function and configuration without executing it.
 func PackagedTask[I, O any](cfg Config, fn func(*Co, I) adt.Result[O]) *Task[I, O] {
-	prom, fut := NewPromise[O](cfg.Context)
+	baseCtx := adt.Opt[context.Context](cfg.Context).OrElse(context.Background())
+	prom, fut := NewPromise[O](baseCtx)
+
+	coCtx := adt.Opt(cfg.Context).OrElseGet(func() Context {
+		return &GoroutineContext{
+			Context:  fut.Context(),
+			handlers: cfg.OnCall,
+		}
+	})
+	if gc, ok := coCtx.(*GoroutineContext); ok && len(gc.handlers) == 0 {
+		gc.handlers = cfg.OnCall
+	}
+	if dc, ok := coCtx.(*DurableContext); ok && len(dc.handlers) == 0 {
+		dc.handlers = cfg.OnCall
+	}
+
 	co := &Co{
-		Context:  fut.Context(),
+		Context:  coCtx,
 		onEmitFn: adt.Opt(cfg.OnEmit).OrElse(noopEmit),
-		handlers: cfg.OnCall,
 	}
 	return &Task[I, O]{
 		fut: fut,

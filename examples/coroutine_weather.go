@@ -46,7 +46,7 @@ func RunSingleWeatherQuery(ctx context.Context, logs *[]string) string {
 	log(fmt.Sprintf("Caller Input: %s", input1))
 
 	cfg := async.Config{
-		Context: ctx,
+		Context: async.NewGoroutineContext(ctx),
 		OnEmit: func(val any) {
 			t := val.(Temperature)
 			log(fmt.Sprintf("Caller Received Emit: City=%s", t.City))
@@ -90,7 +90,7 @@ func RunMultiWeatherPipelined(ctx context.Context, logs *[]string) string {
 	}
 
 	cfg := async.Config{
-		Context: ctx,
+		Context: async.NewGoroutineContext(ctx),
 		OnEmit: func(val any) {
 			t := val.(Temperature)
 			log(fmt.Sprintf("Caller Observed Emit: City=%s", t.City))
