@@ -1088,4 +1088,54 @@ func TestGoroutineContext_MultipleOps(t *testing.T) {
 	}
 }
 
+type syncContext struct {
+	context.Context
+}
+
+func (s *syncContext) Call(op string, val any) *Future[any] {
+	prom, fut := NewPromise[any](s.Context)
+	prom.Resolve(val)
+	return fut
+}
+
+func (s *syncContext) Async(fn func(ctx context.Context) adt.Result[any]) *Future[any] {
+	prom, fut := NewPromise[any](s.Context)
+	fn(s.Context).Fold(prom.Resolve, prom.Reject)
+	return fut
+}
+
+func TestCoroutine_SynchronousFuture_SettlesSynchronously(t *testing.T) {
+	op := DefineOp[int, int]("sync_op")
+	ctx := &syncContext{Context: context.Background()}
+
+	task := Launch[adt.Unit, int](Config{Context: ctx}, adt.Void, func(co *Co, _ adt.Unit) adt.Result[int] {
+		futCall := co.Call(op, 42)
+		select {
+		case <-futCall.Context().Done():
+		default:
+			t.Error("expected futCall to be settled synchronously")
+		}
+
+		futAsync := co.Async(func(ctx context.Context) adt.Result[int] {
+			return adt.OK(58)
+		})
+		select {
+		case <-futAsync.Context().Done():
+		default:
+			t.Error("expected futAsync to be settled synchronously")
+		}
+
+		return adt.OK(futCall.Await().MustGet() + futAsync.Await().MustGet())
+	})
+
+	res := task.Await()
+	if res.IsErr() {
+		t.Fatalf("unexpected error: %v", res.MustErr())
+	}
+	if res.MustGet() != 100 {
+		t.Fatalf("expected 100, got %d", res.MustGet())
+	}
+}
+
+
 

@@ -96,32 +96,43 @@ type Co struct {
 // Emit sends a fire-and-forget notification directly to the caller's OnEmit listener.
 func (c *Co) Emit(val any) { c.onEmitFn(val) }
 
+func settleTypeCast[R any](futAny *Future[any], promR *Promise[R], errMsg string) {
+	defer settlePanic(promR)
+	futAny.Await().Fold(
+		func(val any) adt.Unit {
+			v, ok := val.(R)
+			adt.FromOk(v, ok).Fold(
+				promR.Resolve,
+				func() bool {
+					var zero R
+					return promR.Reject(fmt.Errorf("%s: expected %T, got %T", errMsg, zero, val))
+				},
+			)
+			return adt.Void
+		},
+		func(err error) adt.Unit {
+			promR.Reject(err)
+			return adt.Void
+		},
+	)
+}
+
+func bridgeFuture[R any](futAny *Future[any], promR *Promise[R], errMsg string) {
+	select {
+	case <-futAny.Context().Done():
+		settleTypeCast(futAny, promR, errMsg)
+	default:
+		go settleTypeCast(futAny, promR, errMsg)
+	}
+}
+
 // Async spawns an asynchronous computation as a child of this coroutine, returning a Future.
 func (c *Co) Async[R any](fn func(ctx context.Context) adt.Result[R]) *Future[R] {
 	promR, futR := NewPromise[R](c)
 	futAny := c.engine.Async(func(ctx context.Context) adt.Result[any] {
 		return fn(ctx).Map(func(r R) any { return any(r) })
 	})
-	go func() {
-		defer settlePanic(promR)
-		futAny.Await().Fold(
-			func(val any) adt.Unit {
-				v, ok := val.(R)
-				adt.FromOk(v, ok).Fold(
-					promR.Resolve,
-					func() bool {
-						var zero R
-						return promR.Reject(fmt.Errorf("async result type mismatch: expected %T, got %T", zero, val))
-					},
-				)
-				return adt.Void
-			},
-			func(err error) adt.Unit {
-				promR.Reject(err)
-				return adt.Void
-			},
-		)
-	}()
+	bridgeFuture(futAny, promR, "async result type mismatch")
 	return futR
 }
 
@@ -129,28 +140,10 @@ func (c *Co) Async[R any](fn func(ctx context.Context) adt.Result[R]) *Future[R]
 func (c *Co) Call[S, R any](op Op[S, R], s S) *Future[R] {
 	promR, futR := NewPromise[R](c)
 	futAny := c.engine.Call(op.Name(), s)
-	go func() {
-		defer settlePanic(promR)
-		futAny.Await().Fold(
-			func(val any) adt.Unit {
-				v, ok := val.(R)
-				adt.FromOk(v, ok).Fold(
-					promR.Resolve,
-					func() bool {
-						var zero R
-						return promR.Reject(fmt.Errorf("call response type mismatch for op %s: expected %T, got %T", op.Name(), zero, val))
-					},
-				)
-				return adt.Void
-			},
-			func(err error) adt.Unit {
-				promR.Reject(err)
-				return adt.Void
-			},
-		)
-	}()
+	bridgeFuture(futAny, promR, fmt.Sprintf("call response type mismatch for op %s", op.Name()))
 	return futR
 }
+
 
 func dispatchCall(handlers []CallHandler, inv CallInvocation, prom *Promise[any]) bool {
 	for _, h := range handlers {
