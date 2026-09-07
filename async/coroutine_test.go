@@ -1471,6 +1471,323 @@ func TestCoroutine_Emit_MultipleValues_InOrder(t *testing.T) {
 	}
 }
 
+func TestDurableContext_BasicCallReplay(t *testing.T) {
+	journal := NewJournal()
+	op := DefineOp[int, int]("double")
+	var handlerCalls atomic.Int32
+
+	cfg1 := Config{
+		Context: NewDurableContext(context.Background(), journal),
+		OnCall: []CallHandler{
+			op.Handle(func(x int) adt.Result[int] {
+				handlerCalls.Add(1)
+				return adt.OK(x * 2)
+			}),
+		},
+	}
+	task1 := Launch[int, int](cfg1, 21, func(co *Co, in int) adt.Result[int] {
+		return co.Call(op, in).Await()
+	})
+	res1 := task1.Await()
+	if res1.IsErr() || res1.MustGet() != 42 {
+		t.Fatalf("run 1 failed: %v", res1)
+	}
+	if handlerCalls.Load() != 1 {
+		t.Fatalf("expected 1 call, got %d", handlerCalls.Load())
+	}
+
+	// Turn 2: Replay with same journal, SetMaxSteps(0)
+	dCtx2 := NewDurableContext(context.Background(), journal)
+	dCtx2.SetMaxSteps(0)
+	cfg2 := Config{
+		Context: dCtx2,
+		OnCall: []CallHandler{
+			op.Handle(func(x int) adt.Result[int] {
+				handlerCalls.Add(1)
+				return adt.OK(x * 2)
+			}),
+		},
+	}
+	task2 := Launch[int, int](cfg2, 21, func(co *Co, in int) adt.Result[int] {
+		return co.Call(op, in).Await()
+	})
+	res2 := task2.Await()
+	if res2.IsErr() || res2.MustGet() != 42 {
+		t.Fatalf("run 2 replay failed: %v", res2)
+	}
+	if handlerCalls.Load() != 1 {
+		t.Fatalf("expected handler NOT to be called on replay, calls=%d", handlerCalls.Load())
+	}
+}
+
+func TestDurableContext_BasicAsyncReplay(t *testing.T) {
+	journal := NewJournal()
+	var asyncCalls atomic.Int32
+
+	cfg1 := Config{
+		Context: NewDurableContext(context.Background(), journal),
+	}
+	task1 := Launch[adt.Unit, string](cfg1, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
+		return co.Async(func(ctx context.Context) adt.Result[string] {
+			asyncCalls.Add(1)
+			return adt.OK("async_result")
+		}).Await()
+	})
+	res1 := task1.Await()
+	if res1.IsErr() || res1.MustGet() != "async_result" {
+		t.Fatalf("run 1 failed: %v", res1)
+	}
+	if asyncCalls.Load() != 1 {
+		t.Fatalf("expected 1 call, got %d", asyncCalls.Load())
+	}
+
+	// Turn 2: Replay with same journal, SetMaxSteps(0)
+	dCtx2 := NewDurableContext(context.Background(), journal)
+	dCtx2.SetMaxSteps(0)
+	cfg2 := Config{Context: dCtx2}
+	task2 := Launch[adt.Unit, string](cfg2, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
+		return co.Async(func(ctx context.Context) adt.Result[string] {
+			asyncCalls.Add(1)
+			return adt.OK("async_result")
+		}).Await()
+	})
+	res2 := task2.Await()
+	if res2.IsErr() || res2.MustGet() != "async_result" {
+		t.Fatalf("run 2 replay failed: %v", res2)
+	}
+	if asyncCalls.Load() != 1 {
+		t.Fatalf("expected async NOT to be called on replay, calls=%d", asyncCalls.Load())
+	}
+}
+
+func TestDurableContext_HandlerError_NotJournaled(t *testing.T) {
+	journal := NewJournal()
+	errOp := DefineOp[int, int]("err_op")
+
+	cfg := Config{
+		Context: NewDurableContext(context.Background(), journal),
+		OnCall: []CallHandler{
+			errOp.Handle(func(x int) adt.Result[int] {
+				return adt.Err[int](errors.New("handler failed"))
+			}),
+		},
+	}
+	task := Launch[adt.Unit, int](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[int] {
+		return co.Call(errOp, 10).Await()
+	})
+	res := task.Await()
+	if !res.IsErr() {
+		t.Fatal("expected error")
+	}
+	if journal.Len() != 0 {
+		t.Fatalf("expected journal to remain empty, got %d", journal.Len())
+	}
+}
+
+func TestDurableContext_HandlerPanic_NotJournaled(t *testing.T) {
+	journal := NewJournal()
+	panicOp := DefineOp[int, int]("panic_op")
+
+	cfg := Config{
+		Context: NewDurableContext(context.Background(), journal),
+		OnCall: []CallHandler{
+			panicOp.Handle(func(x int) adt.Result[int] {
+				panic("boom")
+			}),
+		},
+	}
+	task := Launch[adt.Unit, int](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[int] {
+		return co.Call(panicOp, 10).Await()
+	})
+	res := task.Await()
+	if !res.IsErr() {
+		t.Fatal("expected error")
+	}
+	if journal.Len() != 0 {
+		t.Fatalf("expected journal to remain empty, got %d", journal.Len())
+	}
+}
+
+func TestDurableContext_MaxSteps_ZeroSuspendsOnFirstCall(t *testing.T) {
+	journal := NewJournal()
+	dCtx := NewDurableContext(context.Background(), journal)
+	dCtx.SetMaxSteps(0)
+	op := DefineOp[int, int]("op")
+
+	cfg := Config{
+		Context: dCtx,
+		OnCall: []CallHandler{
+			op.Handle(func(x int) adt.Result[int] { return adt.OK(x) }),
+		},
+	}
+	task := Launch[adt.Unit, int](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[int] {
+		return co.Call(op, 5).Await()
+	})
+	res := task.Await()
+	if !res.IsErr() || !errors.Is(res.MustErr(), ErrSuspended) {
+		t.Fatalf("expected ErrSuspended, got %v", res)
+	}
+	if journal.Len() != 0 {
+		t.Fatalf("expected journal len 0, got %d", journal.Len())
+	}
+}
+
+func TestDurableContext_MaxSteps_OneAllowsFirstOnly(t *testing.T) {
+	journal := NewJournal()
+	dCtx := NewDurableContext(context.Background(), journal)
+	dCtx.SetMaxSteps(1)
+	op1 := DefineOp[int, int]("op1")
+	op2 := DefineOp[int, int]("op2")
+
+	cfg := Config{
+		Context: dCtx,
+		OnCall: []CallHandler{
+			op1.Handle(func(x int) adt.Result[int] { return adt.OK(x + 1) }),
+			op2.Handle(func(x int) adt.Result[int] { return adt.OK(x + 2) }),
+		},
+	}
+	task := Launch[adt.Unit, int](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[int] {
+		r1 := co.Call(op1, 10).Await()
+		if r1.IsErr() {
+			return r1
+		}
+		return co.Call(op2, 20).Await()
+	})
+	res := task.Await()
+	if !res.IsErr() || !errors.Is(res.MustErr(), ErrSuspended) {
+		t.Fatalf("expected ErrSuspended, got %v", res)
+	}
+	if journal.Len() != 1 {
+		t.Fatalf("expected journal len 1, got %d", journal.Len())
+	}
+}
+
+func TestDurableContext_Restart_HandlerCalledExactlyOnce(t *testing.T) {
+	journal := NewJournal()
+	op1 := DefineOp[int, int]("step1")
+	op2 := DefineOp[int, int]("step2")
+
+	var h1Calls, h2Calls atomic.Int32
+
+	handlers := []CallHandler{
+		op1.Handle(func(x int) adt.Result[int] {
+			h1Calls.Add(1)
+			return adt.OK(x * 2)
+		}),
+		op2.Handle(func(x int) adt.Result[int] {
+			h2Calls.Add(1)
+			return adt.OK(x * 3)
+		}),
+	}
+
+	workflow := func(co *Co, in int) adt.Result[int] {
+		r1 := co.Call(op1, in).Await()
+		if r1.IsErr() {
+			return r1
+		}
+		r2 := co.Call(op2, r1.MustGet()).Await()
+		if r2.IsErr() {
+			return r2
+		}
+		return r2
+	}
+
+	// Turn 0: maxSteps = 0 -> suspends before step1
+	dCtx0 := NewDurableContext(context.Background(), journal)
+	dCtx0.SetMaxSteps(0)
+	t0 := Launch[int, int](Config{Context: dCtx0, OnCall: handlers}, 5, workflow)
+	if !errors.Is(t0.Await().MustErr(), ErrSuspended) {
+		t.Fatal("turn 0 expected ErrSuspended")
+	}
+
+	// Turn 1: maxSteps = 1 -> runs step1, suspends before step2
+	dCtx1 := NewDurableContext(context.Background(), journal)
+	dCtx1.SetMaxSteps(1)
+	t1 := Launch[int, int](Config{Context: dCtx1, OnCall: handlers}, 5, workflow)
+	if !errors.Is(t1.Await().MustErr(), ErrSuspended) {
+		t.Fatal("turn 1 expected ErrSuspended")
+	}
+
+	// Turn 2: maxSteps = -1 -> replays step1 from journal, runs step2 to finish
+	dCtx2 := NewDurableContext(context.Background(), journal)
+	t2 := Launch[int, int](Config{Context: dCtx2, OnCall: handlers}, 5, workflow)
+	res := t2.Await()
+	if res.IsErr() || res.MustGet() != 30 {
+		t.Fatalf("turn 2 failed: %v", res)
+	}
+
+	if h1Calls.Load() != 1 {
+		t.Fatalf("expected h1 called exactly once, got %d", h1Calls.Load())
+	}
+	if h2Calls.Load() != 1 {
+		t.Fatalf("expected h2 called exactly once, got %d", h2Calls.Load())
+	}
+}
+
+func TestDurableContext_MixedAsyncAndCall_ReplayOrder(t *testing.T) {
+	journal := NewJournal()
+	op := DefineOp[string, string]("echo_op")
+	handlers := []CallHandler{
+		op.Handle(func(s string) adt.Result[string] {
+			return adt.OK("called:" + s)
+		}),
+	}
+
+	workflow := func(co *Co, _ adt.Unit) adt.Result[string] {
+		// Step 0: Async
+		a1 := co.Async(func(ctx context.Context) adt.Result[string] {
+			return adt.OK("async_1")
+		}).Await()
+		if a1.IsErr() {
+			return a1
+		}
+
+		// Step 1: Call
+		c1 := co.Call(op, a1.MustGet()).Await()
+		if c1.IsErr() {
+			return c1
+		}
+
+		// Step 2: Async
+		a2 := co.Async(func(ctx context.Context) adt.Result[string] {
+			return adt.OK("async_2")
+		}).Await()
+		if a2.IsErr() {
+			return a2
+		}
+
+		return adt.OK(fmt.Sprintf("%s|%s|%s", a1.MustGet(), c1.MustGet(), a2.MustGet()))
+	}
+
+	// Run step 0 only
+	d0 := NewDurableContext(context.Background(), journal)
+	d0.SetMaxSteps(1)
+	Launch[adt.Unit, string](Config{Context: d0, OnCall: handlers}, adt.Void, workflow).Await()
+	if journal.Len() != 1 {
+		t.Fatalf("expected 1 entry, got %d", journal.Len())
+	}
+
+	// Run step 1
+	d1 := NewDurableContext(context.Background(), journal)
+	d1.SetMaxSteps(2)
+	Launch[adt.Unit, string](Config{Context: d1, OnCall: handlers}, adt.Void, workflow).Await()
+	if journal.Len() != 2 {
+		t.Fatalf("expected 2 entries, got %d", journal.Len())
+	}
+
+	// Run all to completion
+	d2 := NewDurableContext(context.Background(), journal)
+	res := Launch[adt.Unit, string](Config{Context: d2, OnCall: handlers}, adt.Void, workflow).Await()
+	if res.IsErr() {
+		t.Fatalf("unexpected error: %v", res.MustErr())
+	}
+	expected := "async_1|called:async_1|async_2"
+	if res.MustGet() != expected {
+		t.Fatalf("expected %q, got %q", expected, res.MustGet())
+	}
+}
+
+
 
 
 
