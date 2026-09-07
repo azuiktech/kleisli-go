@@ -1230,6 +1230,116 @@ func TestTask_AwaitCtx_TimeoutDoesNotCancelFuture(t *testing.T) {
 	}
 }
 
+func TestCoroutine_Async_FnPanics(t *testing.T) {
+	task := Launch[adt.Unit, string](Config{}, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
+		fut := co.Async(func(ctx context.Context) adt.Result[string] {
+			panic("something went horribly wrong")
+		})
+		return fut.Await()
+	})
+
+	res := task.Await()
+	if !res.IsErr() {
+		t.Fatal("expected error when async fn panics")
+	}
+	expectedMsg := "coroutine panic: something went horribly wrong"
+	if res.MustErr().Error() != expectedMsg {
+		t.Fatalf("expected error message %q, got %q", expectedMsg, res.MustErr().Error())
+	}
+}
+
+func TestCoroutine_Call_HandlerFnPanics(t *testing.T) {
+	panicOp := DefineOp[string, string]("panic_op")
+	customErr := errors.New("custom panic error")
+
+	cfg := Config{
+		OnCall: []CallHandler{
+			panicOp.Handle(func(s string) adt.Result[string] {
+				panic(customErr)
+			}),
+		},
+	}
+
+	task := Launch[adt.Unit, string](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
+		return co.Call(panicOp, "test").Await()
+	})
+
+	res := task.Await()
+	if !res.IsErr() {
+		t.Fatal("expected error when handler fn panics")
+	}
+	if !errors.Is(res.MustErr(), customErr) {
+		t.Fatalf("expected custom error %v, got %v", customErr, res.MustErr())
+	}
+}
+
+func TestCoroutine_Call_HandlerPanicsNonError(t *testing.T) {
+	panicOp := DefineOp[string, string]("panic_str_op")
+
+	cfg := Config{
+		OnCall: []CallHandler{
+			panicOp.Handle(func(s string) adt.Result[string] {
+				panic("non-error panic payload")
+			}),
+		},
+	}
+
+	task := Launch[adt.Unit, string](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
+		return co.Call(panicOp, "test").Await()
+	})
+
+	res := task.Await()
+	if !res.IsErr() {
+		t.Fatal("expected error when handler panics with string")
+	}
+	expectedMsg := "coroutine panic: non-error panic payload"
+	if res.MustErr().Error() != expectedMsg {
+		t.Fatalf("expected %q, got %q", expectedMsg, res.MustErr().Error())
+	}
+}
+
+func TestCoroutine_Call_TwoSlowHandlers_RunInParallel(t *testing.T) {
+	op1 := DefineOp[int, int]("op1")
+	op2 := DefineOp[int, int]("op2")
+
+	cfg := Config{
+		OnCall: []CallHandler{
+			op1.Handle(func(x int) adt.Result[int] {
+				time.Sleep(50 * time.Millisecond)
+				return adt.OK(x + 1)
+			}),
+			op2.Handle(func(x int) adt.Result[int] {
+				time.Sleep(50 * time.Millisecond)
+				return adt.OK(x + 2)
+			}),
+		},
+	}
+
+	start := time.Now()
+	task := Launch[adt.Unit, int](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[int] {
+		fut1 := co.Call(op1, 10)
+		fut2 := co.Call(op2, 20)
+
+		r1 := fut1.Await().MustGet()
+		r2 := fut2.Await().MustGet()
+		return adt.OK(r1 + r2)
+	})
+
+	res := task.Await()
+	elapsed := time.Since(start)
+
+	if res.IsErr() {
+		t.Fatalf("unexpected error: %v", res.MustErr())
+	}
+	if res.MustGet() != 33 {
+		t.Fatalf("expected 33, got %d", res.MustGet())
+	}
+	if elapsed >= 95*time.Millisecond {
+		t.Fatalf("expected parallel execution under 95ms, took %v", elapsed)
+	}
+}
+
+
 
 
 
