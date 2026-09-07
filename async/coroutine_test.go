@@ -1787,6 +1787,90 @@ func TestDurableContext_MixedAsyncAndCall_ReplayOrder(t *testing.T) {
 	}
 }
 
+func TestCoroutine_CaseA_Ordering_Stress(t *testing.T) {
+	eventOp := DefineOp[string, adt.Unit]("stress-event")
+
+	for i := 0; i < 200; i++ {
+		var order []string
+		var mu sync.Mutex
+
+		cfg := Config{
+			OnCall: []CallHandler{
+				eventOp.Handle(func(req string) adt.Result[adt.Unit] {
+					mu.Lock()
+					order = append(order, fmt.Sprintf("caller:processing-%s", req))
+					mu.Unlock()
+					return adt.OK(adt.Void)
+				}),
+			},
+		}
+
+		task := Launch[adt.Unit, string](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
+			mu.Lock()
+			order = append(order, "callee:before-emit")
+			mu.Unlock()
+
+			co.Call(eventOp, "stress-event").Await()
+
+			mu.Lock()
+			order = append(order, "callee:after-ack")
+			mu.Unlock()
+
+			return adt.OK("done")
+		})
+
+		res := task.Await()
+		if res.IsErr() {
+			t.Fatalf("iteration %d: expected OK, got: %v", i, res.MustErr())
+		}
+
+		mu.Lock()
+		expected := []string{"callee:before-emit", "caller:processing-stress-event", "callee:after-ack"}
+		if len(order) != 3 || order[0] != expected[0] || order[1] != expected[1] || order[2] != expected[2] {
+			mu.Unlock()
+			t.Fatalf("iteration %d: order inverted! got %v, want %v", i, order, expected)
+		}
+		mu.Unlock()
+	}
+}
+
+func TestCoroutine_ConcurrentCallAndCancel_Race(t *testing.T) {
+	op := DefineOp[int, int]("race_op")
+
+	cfg := Config{
+		OnCall: []CallHandler{
+			op.Handle(func(x int) adt.Result[int] {
+				time.Sleep(2 * time.Millisecond)
+				return adt.OK(x * 2)
+			}),
+		},
+	}
+
+	for i := 0; i < 50; i++ {
+		task := Launch[adt.Unit, int](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[int] {
+			var wg sync.WaitGroup
+			for j := 0; j < 5; j++ {
+				wg.Add(1)
+				go func(val int) {
+					defer wg.Done()
+					fut := co.Call(op, val)
+					fut.Await()
+				}(j)
+			}
+			wg.Wait()
+			return adt.OK(42)
+		})
+
+		go func() {
+			time.Sleep(1 * time.Millisecond)
+			task.Cancel(errors.New("concurrent cancel"))
+		}()
+
+		task.Await()
+	}
+}
+
+
 
 
 
