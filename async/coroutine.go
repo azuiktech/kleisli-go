@@ -174,17 +174,12 @@ func PackagedTask[I, O any](cfg Config, fn func(*Co, I) adt.Result[O]) *Task[I, 
 	prom, fut := NewPromise[O](baseCtx)
 
 	coCtx := adt.Opt(cfg.Context).OrElseGet(func() Context {
-		return &GoroutineContext{
-			Context:  fut.Context(),
-			handlers: cfg.OnCall,
-		}
+		return NewGoroutineContext(fut.Context())
 	})
-	if gc, ok := coCtx.(*GoroutineContext); ok && len(gc.handlers) == 0 {
-		gc.handlers = cfg.OnCall
+	if hc, ok := coCtx.(HandlerContext); ok && len(cfg.OnCall) > 0 {
+		hc.SetHandlers(cfg.OnCall)
 	}
-	if dc, ok := coCtx.(*DurableContext); ok && len(dc.handlers) == 0 {
-		dc.handlers = cfg.OnCall
-	}
+
 
 	co := &Co{
 		Context:  fut.Context(),

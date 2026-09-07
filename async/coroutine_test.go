@@ -919,3 +919,173 @@ func TestTask_Cancel_PropagatesTo_Co_DurableContext(t *testing.T) {
 	}
 }
 
+type customContextWithHandlers struct {
+	context.Context
+	handlers []CallHandler
+}
+
+func (c *customContextWithHandlers) SetHandlers(handlers []CallHandler) {
+	c.handlers = append(c.handlers, handlers...)
+}
+
+func (c *customContextWithHandlers) Call(op string, s any) *Future[any] {
+	prom, fut := NewPromise[any](c.Context)
+	go func() {
+		defer settlePanic(prom)
+		inv := CallInvocation{OpName: op, S: s}
+		if !dispatchCall(c.handlers, inv, prom) {
+			prom.Reject(fmt.Errorf("no handler registered for operation: %s", op))
+		}
+	}()
+	return fut
+}
+
+func (c *customContextWithHandlers) Async(fn func(ctx context.Context) adt.Result[any]) *Future[any] {
+	prom, fut := NewPromise[any](c.Context)
+	go func() {
+		defer settlePanic(prom)
+		fn(fut.Context()).Fold(prom.Resolve, prom.Reject)
+	}()
+	return fut
+}
+
+func TestHandlerContext_CustomContextReceivesHandlers(t *testing.T) {
+	myOp := DefineOp[string, int]("my_op")
+	customCtx := &customContextWithHandlers{Context: context.Background()}
+
+	cfg := Config{
+		Context: customCtx,
+		OnCall: []CallHandler{
+			myOp.Handle(func(s string) adt.Result[int] {
+				return adt.OK(len(s))
+			}),
+		},
+	}
+
+	task := Launch[adt.Unit, int](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[int] {
+		return co.Call(myOp, "hello").Await()
+	})
+
+	res := task.Await()
+	if res.IsErr() {
+		t.Fatalf("unexpected error: %v", res.MustErr())
+	}
+	if res.MustGet() != 5 {
+		t.Fatalf("expected 5, got %d", res.MustGet())
+	}
+}
+
+func TestHandlerContext_PreloadedAndConfigHandlers(t *testing.T) {
+	op1 := DefineOp[int, int]("op1")
+	op2 := DefineOp[int, int]("op2")
+
+	gc := NewGoroutineContext(context.Background())
+	gc.SetHandlers([]CallHandler{
+		op1.Handle(func(x int) adt.Result[int] { return adt.OK(x * 2) }),
+	})
+
+	cfg := Config{
+		Context: gc,
+		OnCall: []CallHandler{
+			op2.Handle(func(x int) adt.Result[int] { return adt.OK(x + 10) }),
+		},
+	}
+
+	task := Launch[adt.Unit, int](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[int] {
+		r1 := co.Call(op1, 5).Await().MustGet()
+		r2 := co.Call(op2, 5).Await().MustGet()
+		return adt.OK(r1 + r2)
+	})
+
+	res := task.Await()
+	if res.IsErr() {
+		t.Fatalf("unexpected error: %v", res.MustErr())
+	}
+	if res.MustGet() != 25 { // 10 + 15
+		t.Fatalf("expected 25, got %d", res.MustGet())
+	}
+}
+
+func TestOp_DefineOp_EmptyName(t *testing.T) {
+	op := DefineOp[int, string]("")
+	expected := "int->string"
+	if op.Name() != expected {
+		t.Fatalf("expected op name %q, got %q", expected, op.Name())
+	}
+}
+
+func TestOp_DefineOp_NonEmpty(t *testing.T) {
+	op := DefineOp[int, string]("custom_name")
+	expected := "custom_name"
+	if op.Name() != expected {
+		t.Fatalf("expected op name %q, got %q", expected, op.Name())
+	}
+}
+
+func TestCallHandler_RequestTypeMismatch(t *testing.T) {
+	op := DefineOp[int, int]("math_op")
+	handler := op.Handle(func(x int) adt.Result[int] {
+		return adt.OK(x * 2)
+	})
+
+	prom, fut := NewPromise[any](context.Background())
+	inv := CallInvocation{OpName: "math_op", S: "not_an_int"}
+
+	handled := handler.Handle(inv, prom)
+	if !handled {
+		t.Fatal("expected handler.Handle to return true for matching op name")
+	}
+
+	res := fut.Await()
+	if !res.IsErr() {
+		t.Fatal("expected future to reject on type mismatch")
+	}
+	expectedSub := "request type mismatch for operation math_op: expected int, got string"
+	if res.MustErr().Error() != expectedSub {
+		t.Fatalf("expected error %q, got %q", expectedSub, res.MustErr().Error())
+	}
+}
+
+func TestGoroutineContext_NoHandlerRegistered(t *testing.T) {
+	task := Launch[adt.Unit, string](Config{}, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
+		unregisteredOp := DefineOp[string, string]("unregistered")
+		return co.Call(unregisteredOp, "test").Await()
+	})
+
+	res := task.Await()
+	if !res.IsErr() {
+		t.Fatal("expected error when no handler is registered")
+	}
+	expectedSub := "no handler registered for operation: unregistered"
+	if res.MustErr().Error() != expectedSub {
+		t.Fatalf("expected error %q, got %q", expectedSub, res.MustErr().Error())
+	}
+}
+
+func TestGoroutineContext_MultipleOps(t *testing.T) {
+	opA := DefineOp[int, int]("opA")
+	opB := DefineOp[string, string]("opB")
+
+	cfg := Config{
+		OnCall: []CallHandler{
+			opA.Handle(func(x int) adt.Result[int] { return adt.OK(x * 10) }),
+			opB.Handle(func(s string) adt.Result[string] { return adt.OK("hello " + s) }),
+		},
+	}
+
+	task := Launch[adt.Unit, string](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
+		rA := co.Call(opA, 3).Await().MustGet()
+		rB := co.Call(opB, "world").Await().MustGet()
+		return adt.OK(fmt.Sprintf("%d:%s", rA, rB))
+	})
+
+	res := task.Await()
+	if res.IsErr() {
+		t.Fatalf("unexpected error: %v", res.MustErr())
+	}
+	if res.MustGet() != "30:hello world" {
+		t.Fatalf("expected '30:hello world', got %q", res.MustGet())
+	}
+}
+
+

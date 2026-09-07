@@ -17,6 +17,11 @@ type Context interface {
 	Async(fn func(ctx context.Context) adt.Result[any]) *Future[any]
 }
 
+// HandlerContext is implemented by Context implementations that support registering call handlers.
+type HandlerContext interface {
+	SetHandlers(handlers []CallHandler)
+}
+
 // GoroutineContext implements Context using in-memory goroutines and local handlers.
 type GoroutineContext struct {
 	context.Context
@@ -28,6 +33,12 @@ func NewGoroutineContext(ctx context.Context) *GoroutineContext {
 	baseCtx := adt.Opt(ctx).OrElse(context.Background())
 	return &GoroutineContext{Context: baseCtx}
 }
+
+// SetHandlers appends call handlers to the GoroutineContext.
+func (g *GoroutineContext) SetHandlers(handlers []CallHandler) {
+	g.handlers = append(g.handlers, handlers...)
+}
+
 
 func (g *GoroutineContext) Call(op string, s any) *Future[any] {
 	prom, fut := NewPromise[any](g.Context)
@@ -111,6 +122,12 @@ func NewDurableContext(ctx context.Context, journal *Journal) *DurableContext {
 func (d *DurableContext) SetMaxSteps(n int) {
 	d.maxSteps = n
 }
+
+// SetHandlers appends call handlers to the DurableContext.
+func (d *DurableContext) SetHandlers(handlers []CallHandler) {
+	d.handlers = append(d.handlers, handlers...)
+}
+
 
 // Call executes an asymmetric operation or replays it from journal history.
 func (d *DurableContext) Call(op string, s any) *Future[any] {
