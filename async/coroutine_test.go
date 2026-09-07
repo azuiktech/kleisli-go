@@ -843,3 +843,79 @@ func TestCoroutine_AlternatingAsyncCall_Durable(t *testing.T) {
 		t.Fatalf("expected fFinal to run exactly 1 time, got %d", finalRuns.Load())
 	}
 }
+
+func TestTask_Cancel_PropagatesTo_Co_GoroutineContext(t *testing.T) {
+	started := make(chan struct{})
+	unblocked := make(chan struct{})
+
+	task := Launch[adt.Unit, string](Config{}, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
+		close(started)
+		select {
+		case <-co.Done():
+			close(unblocked)
+			return adt.Err[string](co.Err())
+		case <-time.After(2 * time.Second):
+			return adt.Err[string](errors.New("timed out waiting for co.Done()"))
+		}
+	})
+
+	<-started
+	cancelErr := errors.New("aborted by caller")
+	if !task.Cancel(cancelErr) {
+		t.Fatal("expected task.Cancel to return true")
+	}
+
+	select {
+	case <-unblocked:
+	case <-time.After(1 * time.Second):
+		t.Fatal("co.Done() was not unblocked after task.Cancel")
+	}
+
+	res := task.Await()
+	if !res.IsErr() {
+		t.Fatal("expected task result to be error")
+	}
+	if !errors.Is(res.MustErr(), cancelErr) {
+		t.Fatalf("expected error %v, got %v", cancelErr, res.MustErr())
+	}
+}
+
+func TestTask_Cancel_PropagatesTo_Co_DurableContext(t *testing.T) {
+	started := make(chan struct{})
+	unblocked := make(chan struct{})
+
+	journal := NewJournal()
+	durableCtx := NewDurableContext(context.Background(), journal)
+
+	task := Launch[adt.Unit, string](Config{Context: durableCtx}, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
+		close(started)
+		select {
+		case <-co.Done():
+			close(unblocked)
+			return adt.Err[string](co.Err())
+		case <-time.After(2 * time.Second):
+			return adt.Err[string](errors.New("timed out waiting for co.Done()"))
+		}
+	})
+
+	<-started
+	cancelErr := errors.New("aborted durable workflow")
+	if !task.Cancel(cancelErr) {
+		t.Fatal("expected task.Cancel to return true")
+	}
+
+	select {
+	case <-unblocked:
+	case <-time.After(1 * time.Second):
+		t.Fatal("co.Done() was not unblocked after task.Cancel with DurableContext")
+	}
+
+	res := task.Await()
+	if !res.IsErr() {
+		t.Fatal("expected task result to be error")
+	}
+	if !errors.Is(res.MustErr(), cancelErr) {
+		t.Fatalf("expected error %v, got %v", cancelErr, res.MustErr())
+	}
+}
+

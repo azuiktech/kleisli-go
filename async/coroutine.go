@@ -85,9 +85,11 @@ type Config struct {
 }
 
 // Co is the execution and communication scope passed to the coroutine function.
-// It embeds Context directly so it satisfies the Context and context.Context interfaces.
+// It embeds context.Context directly so it satisfies the context.Context interface,
+// with cancellation scoped to the active task.
 type Co struct {
-	Context
+	context.Context
+	engine   Context
 	onEmitFn func(any)
 }
 
@@ -97,7 +99,7 @@ func (c *Co) Emit(val any) { c.onEmitFn(val) }
 // Async spawns an asynchronous computation as a child of this coroutine, returning a Future.
 func (c *Co) Async[R any](fn func(ctx context.Context) adt.Result[R]) *Future[R] {
 	promR, futR := NewPromise[R](c)
-	futAny := c.Context.Async(func(ctx context.Context) adt.Result[any] {
+	futAny := c.engine.Async(func(ctx context.Context) adt.Result[any] {
 		return fn(ctx).Map(func(r R) any { return any(r) })
 	})
 	go func() {
@@ -126,7 +128,7 @@ func (c *Co) Async[R any](fn func(ctx context.Context) adt.Result[R]) *Future[R]
 // Call suspends the coroutine with payload s for operation op, returning a Future that resolves upon resumption with R.
 func (c *Co) Call[S, R any](op Op[S, R], s S) *Future[R] {
 	promR, futR := NewPromise[R](c)
-	futAny := c.Context.Call(op.Name(), s)
+	futAny := c.engine.Call(op.Name(), s)
 	go func() {
 		defer settlePanic(promR)
 		futAny.Await().Fold(
@@ -136,7 +138,7 @@ func (c *Co) Call[S, R any](op Op[S, R], s S) *Future[R] {
 					promR.Resolve,
 					func() bool {
 						var zero R
-						return promR.Reject(fmt.Errorf("call response type mismatch: expected %T, got %T", zero, val))
+						return promR.Reject(fmt.Errorf("call response type mismatch for op %s: expected %T, got %T", op.Name(), zero, val))
 					},
 				)
 				return adt.Void
@@ -185,7 +187,8 @@ func PackagedTask[I, O any](cfg Config, fn func(*Co, I) adt.Result[O]) *Task[I, 
 	}
 
 	co := &Co{
-		Context:  coCtx,
+		Context:  fut.Context(),
+		engine:   coCtx,
 		onEmitFn: adt.Opt(cfg.OnEmit).OrElse(noopEmit),
 	}
 	return &Task[I, O]{
