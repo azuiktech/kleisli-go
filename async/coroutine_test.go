@@ -1339,6 +1339,139 @@ func TestCoroutine_Call_TwoSlowHandlers_RunInParallel(t *testing.T) {
 	}
 }
 
+func TestCoroutine_Call_CancelledMidHandler(t *testing.T) {
+	slowOp := DefineOp[int, int]("slow_op")
+	handlerStarted := make(chan struct{})
+	handlerRelease := make(chan struct{})
+
+	cfg := Config{
+		OnCall: []CallHandler{
+			slowOp.Handle(func(x int) adt.Result[int] {
+				close(handlerStarted)
+				<-handlerRelease
+				return adt.OK(x * 2)
+			}),
+		},
+	}
+
+	task := Launch[adt.Unit, int](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[int] {
+		fut := co.Call(slowOp, 10)
+		return fut.Await()
+	})
+
+	<-handlerStarted
+	cancelErr := errors.New("aborted while handler running")
+	task.Cancel(cancelErr)
+	close(handlerRelease)
+
+	res := task.Await()
+	if !res.IsErr() {
+		t.Fatal("expected task to return error on cancellation")
+	}
+	if !errors.Is(res.MustErr(), cancelErr) {
+		t.Fatalf("expected cancel error %v, got %v", cancelErr, res.MustErr())
+	}
+}
+
+func TestCoroutine_Async_AlreadyCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	cfg := Config{
+		Context: NewGoroutineContext(ctx),
+	}
+
+	task := Launch[adt.Unit, string](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
+		if co.Err() != nil {
+			return adt.Err[string](co.Err())
+		}
+		return co.Async(func(childCtx context.Context) adt.Result[string] {
+			return adt.OK("should not run")
+		}).Await()
+	})
+
+	res := task.Await()
+	if !res.IsErr() {
+		t.Fatal("expected task to fail with cancelled context error")
+	}
+	if !errors.Is(res.MustErr(), context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", res.MustErr())
+	}
+}
+
+func TestCoroutine_Emit_InvokesOnEmit(t *testing.T) {
+	var emitted any
+	cfg := Config{
+		OnEmit: func(v any) {
+			emitted = v
+		},
+	}
+
+	task := Launch[adt.Unit, string](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
+		co.Emit("progress_50")
+		return adt.OK("done")
+	})
+
+	res := task.Await()
+	if res.IsErr() {
+		t.Fatalf("unexpected error: %v", res.MustErr())
+	}
+	if emitted != "progress_50" {
+		t.Fatalf("expected emitted 'progress_50', got %v", emitted)
+	}
+}
+
+func TestCoroutine_Emit_NilOnEmit_NoPanic(t *testing.T) {
+	cfg := Config{
+		OnEmit: nil,
+	}
+
+	task := Launch[adt.Unit, string](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
+		co.Emit("ignored")
+		return adt.OK("ok")
+	})
+
+	res := task.Await()
+	if res.IsErr() {
+		t.Fatalf("unexpected error: %v", res.MustErr())
+	}
+	if res.MustGet() != "ok" {
+		t.Fatalf("expected 'ok', got %q", res.MustGet())
+	}
+}
+
+func TestCoroutine_Emit_MultipleValues_InOrder(t *testing.T) {
+	var mu sync.Mutex
+	var values []int
+
+	cfg := Config{
+		OnEmit: func(v any) {
+			mu.Lock()
+			defer mu.Unlock()
+			values = append(values, v.(int))
+		},
+	}
+
+	task := Launch[adt.Unit, string](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
+		co.Emit(1)
+		co.Emit(2)
+		co.Emit(3)
+		return adt.OK("done")
+	})
+
+	res := task.Await()
+	if res.IsErr() {
+		t.Fatalf("unexpected error: %v", res.MustErr())
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(values) != 3 || values[0] != 1 || values[1] != 2 || values[2] != 3 {
+		t.Fatalf("expected [1, 2, 3], got %v", values)
+	}
+}
+
+
 
 
 
