@@ -1870,6 +1870,81 @@ func TestCoroutine_ConcurrentCallAndCancel_Race(t *testing.T) {
 	}
 }
 
+func TestPackagedTask_CancelAfterRunStarts_FnResultDropped(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	cancelErr := errors.New("cancelled during run")
+
+	task := PackagedTask[adt.Unit, string](Config{}, func(co *Co, _ adt.Unit) adt.Result[string] {
+		close(started)
+		<-release
+		return adt.OK("completed_after_cancel")
+	})
+
+	runDone := make(chan adt.Result[string])
+	go func() {
+		runDone <- task.Run(adt.Void)
+	}()
+
+	<-started
+	task.Cancel(cancelErr)
+	close(release)
+
+	res := <-runDone
+	if !res.IsErr() {
+		t.Fatal("expected task.Run to return cancel error")
+	}
+	if !errors.Is(res.MustErr(), cancelErr) {
+		t.Fatalf("expected %v, got %v", cancelErr, res.MustErr())
+	}
+}
+
+func TestDurableContext_StepIndex_ConcurrentRace(t *testing.T) {
+	journal := NewJournal()
+	dCtx := NewDurableContext(context.Background(), journal)
+	op := DefineOp[int, int]("concurrent_op")
+
+	cfg := Config{
+		Context: dCtx,
+		OnCall: []CallHandler{
+			op.Handle(func(x int) adt.Result[int] {
+				return adt.OK(x * 10)
+			}),
+		},
+	}
+
+	task := Launch[adt.Unit, int](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[int] {
+		var wg sync.WaitGroup
+		futs := make([]*Future[int], 20)
+		for i := 0; i < 20; i++ {
+			idx := i
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				futs[idx] = co.Call(op, idx)
+			}()
+		}
+		wg.Wait()
+
+		sum := 0
+		for _, f := range futs {
+			sum += f.Await().MustGet()
+		}
+		return adt.OK(sum)
+	})
+
+	res := task.Await()
+	if res.IsErr() {
+		t.Fatalf("unexpected error: %v", res.MustErr())
+	}
+	if journal.Len() != 20 {
+		t.Fatalf("expected 20 journal entries, got %d", journal.Len())
+	}
+}
+
+
+
+
 
 
 

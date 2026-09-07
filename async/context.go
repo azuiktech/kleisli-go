@@ -103,6 +103,7 @@ func (j *Journal) Len() int {
 type DurableContext struct {
 	context.Context
 	journal   *Journal
+	mu        sync.Mutex
 	handlers  []CallHandler
 	stepIndex int
 	maxSteps  int // maximum steps to execute before suspending (-1 = run until completion)
@@ -120,39 +121,51 @@ func NewDurableContext(ctx context.Context, journal *Journal) *DurableContext {
 
 // SetMaxSteps limits the number of newly executed steps on this turn before suspending with ErrSuspended.
 func (d *DurableContext) SetMaxSteps(n int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.maxSteps = n
 }
 
 // SetHandlers appends call handlers to the DurableContext.
 func (d *DurableContext) SetHandlers(handlers []CallHandler) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.handlers = append(d.handlers, handlers...)
 }
 
+func (d *DurableContext) allocStep() (any, bool, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	step := d.stepIndex
+	d.stepIndex++
+	val, replayed := d.journal.Get(step)
+	suspended := !replayed && d.maxSteps >= 0 && step >= d.maxSteps
+	return val, replayed, suspended
+}
 
 // Call executes an asymmetric operation or replays it from journal history.
 func (d *DurableContext) Call(op string, s any) *Future[any] {
 	prom, fut := NewPromise[any](d.Context)
-	step := d.stepIndex
-	d.stepIndex++
+	val, replayed, suspended := d.allocStep()
 
-	// 1. Replay from journal if already completed in a prior turn
-	if val, ok := d.journal.Get(step); ok {
+	if replayed {
 		prom.Resolve(val)
 		return fut
 	}
-
-	// 2. Suspend if this turn reached the step limit
-	if d.maxSteps >= 0 && step >= d.maxSteps {
+	if suspended {
 		prom.Reject(ErrSuspended)
 		return fut
 	}
 
-	// 3. First execution of this step
+	d.mu.Lock()
+	handlers := append([]CallHandler(nil), d.handlers...)
+	d.mu.Unlock()
+
 	inv := CallInvocation{OpName: op, S: s}
 	go func() {
 		defer settlePanic(prom)
 		promExec, futExec := NewPromise[any](d.Context)
-		if !dispatchCall(d.handlers, inv, promExec) {
+		if !dispatchCall(handlers, inv, promExec) {
 			prom.Reject(fmt.Errorf("no handler registered for operation: %s", op))
 			return
 		}
@@ -161,9 +174,9 @@ func (d *DurableContext) Call(op string, s any) *Future[any] {
 			prom.Reject(res.MustErr())
 			return
 		}
-		val := res.MustGet()
-		d.journal.Append(val)
-		prom.Resolve(val)
+		resVal := res.MustGet()
+		d.journal.Append(resVal)
+		prom.Resolve(resVal)
 	}()
 	return fut
 }
@@ -171,22 +184,17 @@ func (d *DurableContext) Call(op string, s any) *Future[any] {
 // Async executes a symmetric peer function or replays it from journal history.
 func (d *DurableContext) Async(fn func(ctx context.Context) adt.Result[any]) *Future[any] {
 	prom, fut := NewPromise[any](d.Context)
-	step := d.stepIndex
-	d.stepIndex++
+	val, replayed, suspended := d.allocStep()
 
-	// 1. Replay from journal if already completed in a prior turn
-	if val, ok := d.journal.Get(step); ok {
+	if replayed {
 		prom.Resolve(val)
 		return fut
 	}
-
-	// 2. Suspend if this turn reached the step limit
-	if d.maxSteps >= 0 && step >= d.maxSteps {
+	if suspended {
 		prom.Reject(ErrSuspended)
 		return fut
 	}
 
-	// 3. First execution of this step
 	go func() {
 		defer settlePanic(prom)
 		res := fn(fut.Context())
@@ -194,9 +202,9 @@ func (d *DurableContext) Async(fn func(ctx context.Context) adt.Result[any]) *Fu
 			prom.Reject(res.MustErr())
 			return
 		}
-		val := res.MustGet()
-		d.journal.Append(val)
-		prom.Resolve(val)
+		resVal := res.MustGet()
+		d.journal.Append(resVal)
+		prom.Resolve(resVal)
 	}()
 	return fut
 }
