@@ -1137,5 +1137,99 @@ func TestCoroutine_SynchronousFuture_SettlesSynchronously(t *testing.T) {
 	}
 }
 
+func TestPackagedTask_Run_CalledTwice_RunsOnce(t *testing.T) {
+	var runs atomic.Int32
+
+	task := PackagedTask[int, int](Config{}, func(co *Co, in int) adt.Result[int] {
+		runs.Add(1)
+		time.Sleep(10 * time.Millisecond)
+		return adt.OK(in * 2)
+	})
+
+	var wg sync.WaitGroup
+	results := make([]adt.Result[int], 10)
+	for i := 0; i < 10; i++ {
+		idx := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[idx] = task.Run(21)
+		}()
+	}
+	wg.Wait()
+
+	if runs.Load() != 1 {
+		t.Fatalf("expected fn to execute exactly once, executed %d times", runs.Load())
+	}
+	for i, res := range results {
+		if res.IsErr() {
+			t.Fatalf("result %d returned error: %v", i, res.MustErr())
+		}
+		if res.MustGet() != 42 {
+			t.Fatalf("result %d got %d, want 42", i, res.MustGet())
+		}
+	}
+}
+
+func TestLaunch_EquivalentToPackagedTaskPlusRun(t *testing.T) {
+	fn := func(co *Co, in int) adt.Result[int] {
+		return adt.OK(in + 100)
+	}
+
+	task1 := Launch[int, int](Config{}, 50, fn)
+	task2 := PackagedTask[int, int](Config{}, fn)
+	go task2.Run(50)
+
+	r1 := task1.Await()
+	r2 := task2.Await()
+
+	if r1.IsErr() || r2.IsErr() {
+		t.Fatalf("unexpected error: r1=%v, r2=%v", r1, r2)
+	}
+	if r1.MustGet() != r2.MustGet() || r1.MustGet() != 150 {
+		t.Fatalf("expected 150, got r1=%d, r2=%d", r1.MustGet(), r2.MustGet())
+	}
+}
+
+func TestTask_Future_IsSameAsFutAwait(t *testing.T) {
+	task := Launch[adt.Unit, string](Config{}, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
+		return adt.OK("task_future_ok")
+	})
+
+	resTask := task.Await()
+	resFut := task.Future().Await()
+
+	if resTask.IsErr() || resFut.IsErr() {
+		t.Fatalf("unexpected error: resTask=%v, resFut=%v", resTask, resFut)
+	}
+	if resTask.MustGet() != resFut.MustGet() {
+		t.Fatalf("expected equality, got %q and %q", resTask.MustGet(), resFut.MustGet())
+	}
+}
+
+func TestTask_AwaitCtx_TimeoutDoesNotCancelFuture(t *testing.T) {
+	task := Launch[adt.Unit, string](Config{}, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
+		time.Sleep(50 * time.Millisecond)
+		return adt.OK("eventual_success")
+	})
+
+	ctxTimeout, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	defer cancel()
+
+	timeoutRes := task.AwaitCtx(ctxTimeout)
+	if !timeoutRes.IsErr() {
+		t.Fatal("expected timeoutRes to be Err")
+	}
+
+	res := task.Await()
+	if res.IsErr() {
+		t.Fatalf("expected final task to succeed, got: %v", res.MustErr())
+	}
+	if res.MustGet() != "eventual_success" {
+		t.Fatalf("expected eventual_success, got %q", res.MustGet())
+	}
+}
+
+
 
 

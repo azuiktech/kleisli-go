@@ -3,6 +3,7 @@ package async
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/azuiktech/kleisli-go/adt"
 )
@@ -157,8 +158,9 @@ func dispatchCall(handlers []CallHandler, inv CallInvocation, prom *Promise[any]
 // Task represents a packaged task (akin to std::packaged_task<O(I)>)
 // that pairs a callable function with a Future handle and deferred execution.
 type Task[I, O any] struct {
-	fut *Future[O]
-	run func(I) adt.Result[O]
+	fut     *Future[O]
+	started atomic.Bool
+	run     func(I) adt.Result[O]
 }
 
 // PackagedTask packages the coroutine function and configuration without executing it.
@@ -198,7 +200,13 @@ func Launch[I, O any](cfg Config, in I, fn func(*Co, I) adt.Result[O]) *Task[I, 
 
 // Run executes the packaged task with the given input.
 // It can be invoked synchronously on the current goroutine, or submitted to a worker pool / goroutine.
-func (t *Task[I, O]) Run(in I) adt.Result[O] { return t.run(in) }
+// Calling Run multiple times or concurrently is safe; the task runs once and all callers receive the settled result.
+func (t *Task[I, O]) Run(in I) adt.Result[O] {
+	if !t.started.CompareAndSwap(false, true) {
+		return t.fut.Await()
+	}
+	return t.run(in)
+}
 
 // Future returns the read-only Future handle.
 func (t *Task[I, O]) Future() *Future[O] { return t.fut }
