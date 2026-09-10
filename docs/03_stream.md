@@ -60,9 +60,12 @@ These operations are exclusive to `Stream[T]` because they require inspecting th
 | `Len()` | `func (s Stream[T]) Len() int` | Returns element count. |
 | `IsEmpty()` | `func (s Stream[T]) IsEmpty() bool` | Reports whether element count is zero. |
 | `Last()` | `func (s Stream[T]) Last() adt.Option[T]` | Returns `Some(lastElement)` or `None`. |
-| `Each(fn)` | `func (s Stream[T]) Each(fn func(T)) Stream[T]` | Executes side-effect on every item; returns stream. |
-| `Any(fn)` | `func (s Stream[T]) Any(fn func(T) bool) bool` | Returns true if at least one item satisfies `fn`. |
-| `All(fn)` | `func (s Stream[T]) All(fn func(T) bool) bool` | Returns true if all items satisfy `fn`. |
+| `Tap(fn)` | `func (s Stream[T]) Tap(fn func(T)) Stream[T]` | Executes side-effect on every item; returns stream for chaining. |
+| `ForEach(fn)` | `func (s Stream[T]) ForEach(fn func(T))` | Terminal consumer executing side-effect on every item (returns void). |
+| `AnyOf(fn)` | `func (s Stream[T]) AnyOf(fn func(T) bool) bool` | Returns true if at least one item satisfies `fn` (short-circuits). |
+| `AllOf(fn)` | `func (s Stream[T]) AllOf(fn func(T) bool) bool` | Returns true if all items satisfy `fn` (short-circuits). |
+| `NoneOf(fn)` | `func (s Stream[T]) NoneOf(fn func(T) bool) bool` | Returns true if no items satisfy `fn` (short-circuits). |
+| `All()` | `func (s Stream[T]) All() iter.Seq[T]` | Standard range-over-func iterator over stream elements. |
 | `First(fn)` | `func (s Stream[T]) First(fn func(T) bool) (T, bool)` | Returns first matching element and boolean indicator. |
 | `FirstOpt(fn)` | `func (s Stream[T]) FirstOpt(fn func(T) bool) adt.Option[T]` | Returns first matching element as `Option[T]`. |
 | `Reduce[U](init, fn)`| `func (s Stream[T]) Reduce[U any](initial U, fn func(acc U, item T) U) U` | Left-folds items into an accumulator of type `U`. |
@@ -100,7 +103,8 @@ usersByCountry := stream.Of(users).
 | Constructor | Signature | Description |
 |---|---|---|
 | `FromSeq[T]` | `func FromSeq[T any](seq iter.Seq[T]) Seq[T]` | Wraps native Go `iter.Seq[T]` generator. |
-| `SeqOfOption[T]`| `func SeqOfOption[T any](o adt.Option[T]) Seq[T]` | Lifts `Option[T]` to lazy single-item iterator. |
+| `EmptySeq[T]` | `func EmptySeq[T any]() Seq[T]` | Constructs an empty lazy `Seq[T]`. |
+| `SeqOf[T]` | `func SeqOf[T any](items ...T) Seq[T]` | Constructs a lazy `Seq[T]` from variadic items. |
 | `SeqOfMap[K, V]`| `func SeqOfMap[K comparable, V any](m map[K]V) Seq[Pair[K, V]]` | Lazy iterator over map entries. |
 
 ### Lazy Pipeline Methods
@@ -115,10 +119,12 @@ usersByCountry := stream.Of(users).
 | `TakeWhile(fn)` | `func (s Seq[T]) TakeWhile(fn func(T) bool) Seq[T]` | Pulls items while `fn` is true; short-circuits. |
 | `DropWhile(fn)` | `func (s Seq[T]) DropWhile(fn func(T) bool) Seq[T]` | Drops prefix while `fn` is true. |
 | `Enumerate()` | `func (s Seq[T]) Enumerate() Seq[Indexed[T]]` | Pairs each yielded item with its 0-based index. |
-| `Each(fn)` | `func (s Seq[T]) Each(fn func(T)) Seq[T]` | Traverses sequence with side effect (exhausts iterator). |
-| `ForEach(fn)` | `func (s Seq[T]) ForEach(fn func(T))` | Terminal consumer running `fn` on all elements. |
-| `Any(fn)` | `func (s Seq[T]) Any(fn func(T) bool) bool` | Short-circuits on first `true`. |
-| `All(fn)` | `func (s Seq[T]) All(fn func(T) bool) bool` | Short-circuits on first `false`. |
+| `Tap(fn)` | `func (s Seq[T]) Tap(fn func(T)) Seq[T]` | Lazily inspects elements as they pass through without draining. |
+| `ForEach(fn)` | `func (s Seq[T]) ForEach(fn func(T))` | Terminal consumer running `fn` on all elements (returns void). |
+| `AnyOf(fn)` | `func (s Seq[T]) AnyOf(fn func(T) bool) bool` | Short-circuits on first `true`. |
+| `AllOf(fn)` | `func (s Seq[T]) AllOf(fn func(T) bool) bool` | Short-circuits on first `false`. |
+| `NoneOf(fn)` | `func (s Seq[T]) NoneOf(fn func(T) bool) bool` | Short-circuits on first `true`. |
+| `All()` | `func (s Seq[T]) All() iter.Seq[T]` | Standard range-over-func iterator over sequence elements. |
 | `First(fn)` | `func (s Seq[T]) First(fn func(T) bool) (T, bool)` | Short-circuits finding first match. |
 | `FirstOpt(fn)` | `func (s Seq[T]) FirstOpt(fn func(T) bool) adt.Option[T]` | Short-circuits returning match as `Option[T]`. |
 | `Reduce[U](init, fn)`| `func (s Seq[T]) Reduce[U any](initial U, fn func(acc U, item T) U) U` | Consumes sequence into accumulator `U`. |

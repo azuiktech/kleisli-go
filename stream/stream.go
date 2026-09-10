@@ -22,6 +22,7 @@ package stream
 
 import (
 	"cmp"
+	"iter"
 	"slices"
 
 	"github.com/azuiktech/kleisli-go/adt"
@@ -72,16 +73,24 @@ func (s Stream[T]) Filter(fn func(T) bool) Stream[T] {
 	return Stream[T]{items: slices.Collect(filterSeq(slices.Values(s.items), fn))}
 }
 
-// Each calls fn on every element. Returns s unchanged for chaining.
-func (s Stream[T]) Each(fn func(T)) Stream[T] {
+// Tap calls fn on every element for side-effects. Returns s unchanged for chaining.
+func (s Stream[T]) Tap(fn func(T)) Stream[T] {
 	for _, v := range s.items {
 		fn(v)
 	}
 	return s
 }
 
-// Any reports whether fn returns true for at least one element.
-func (s Stream[T]) Any(fn func(T) bool) bool {
+// ForEach calls fn on every element. Terminal consumer returning void.
+func (s Stream[T]) ForEach(fn func(T)) {
+	for _, v := range s.items {
+		fn(v)
+	}
+}
+
+// AnyOf reports whether fn returns true for at least one element.
+// Short-circuits on the first match.
+func (s Stream[T]) AnyOf(fn func(T) bool) bool {
 	for _, v := range s.items {
 		if fn(v) {
 			return true
@@ -90,14 +99,28 @@ func (s Stream[T]) Any(fn func(T) bool) bool {
 	return false
 }
 
-// All reports whether fn returns true for every element.
-func (s Stream[T]) All(fn func(T) bool) bool {
+// AllOf reports whether fn returns true for every element.
+// Short-circuits on the first failure. Returns true for an empty Stream.
+func (s Stream[T]) AllOf(fn func(T) bool) bool {
 	for _, v := range s.items {
 		if !fn(v) {
 			return false
 		}
 	}
 	return true
+}
+
+// NoneOf reports whether fn returns false for every element.
+// Short-circuits on the first match. Returns true for an empty Stream.
+func (s Stream[T]) NoneOf(fn func(T) bool) bool {
+	return !s.AnyOf(fn)
+}
+
+// All returns an iter.Seq[T] yielding all elements, enabling Go range-over-func loops:
+//
+//	for x := range s.All() { ... }
+func (s Stream[T]) All() iter.Seq[T] {
+	return slices.Values(s.items)
 }
 
 // First returns Some(first element satisfying fn), or None.

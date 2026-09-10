@@ -47,7 +47,7 @@ func HasAllPermissions(accounts []UserAccount, department string, requiredPermis
 		return false
 	}
 
-	return stream.Of(deptUsers).All(func(u UserAccount) bool {
+	return stream.Of(deptUsers).AllOf(func(u UserAccount) bool {
 		return (u.Permissions & requiredPermissions) == requiredPermissions
 	})
 }

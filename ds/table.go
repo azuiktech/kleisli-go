@@ -153,7 +153,7 @@ func (s *nonUniqueStorage[V, K]) delete(v *V) {
 func (s *nonUniqueStorage[V, K]) contains(v *V) bool {
 	return adt.FromMap(s.data, s.extract(v)).
 		Filter(func(items []*V) bool {
-			return stream.Of(items).Any(func(item *V) bool { return item == v })
+			return stream.Of(items).AnyOf(func(item *V) bool { return item == v })
 		}).
 		IsSome()
 }
@@ -233,7 +233,7 @@ func NewTable[V any, PK comparable](pk Unique[V, PK], secondary ...Index[V]) *Ta
 	}
 	t.indexes[pk.id] = mainStorage
 
-	stream.Of(secondary).Each(func(idx Index[V]) {
+	stream.Of(secondary).ForEach(func(idx Index[V]) {
 		storage := idx.createStorage()
 		t.indexes[idx.indexID()] = storage
 		t.secondary = append(t.secondary, storage)
@@ -250,14 +250,14 @@ func (t *Table[V]) Insert(v *V) bool {
 			return false
 		}
 		// Validate all secondary unique indexes
-		return stream.Of(t.secondary).All(func(idx internalIndex[V]) bool {
+		return stream.Of(t.secondary).AllOf(func(idx internalIndex[V]) bool {
 			return idx.canInsert(v)
 		})
 	}).Map(func(v *V) bool {
 		// Insert into main table (primary key)
 		t.main.insert(v)
 		// Insert into all secondary indexes
-		stream.Of(t.secondary).Each(func(idx internalIndex[V]) {
+		stream.Of(t.secondary).ForEach(func(idx internalIndex[V]) {
 			idx.insert(v)
 		})
 		return true
@@ -271,7 +271,7 @@ func (t *Table[V]) Delete(v *V) bool {
 		return t.main.contains(v)
 	}).Map(func(v *V) bool {
 		t.main.delete(v)
-		stream.Of(t.secondary).Each(func(idx internalIndex[V]) {
+		stream.Of(t.secondary).ForEach(func(idx internalIndex[V]) {
 			idx.delete(v)
 		})
 		return true
@@ -286,7 +286,7 @@ func (t *Table[V]) Len() int {
 // Clear removes all records from the main table and all secondary indexes.
 func (t *Table[V]) Clear() {
 	t.main.clear()
-	stream.Of(t.secondary).Each(func(idx internalIndex[V]) { idx.clear() })
+	stream.Of(t.secondary).ForEach(func(idx internalIndex[V]) { idx.clear() })
 }
 
 // From binds the unique index to the given table, returning a type-safe UniqueView.

@@ -74,16 +74,31 @@ func TestSeq_Skip(t *testing.T) {
 	}
 }
 
-func TestSeq_Each(t *testing.T) {
+func TestSeq_ForEach(t *testing.T) {
 	var got []int
-	FromSeq(slices.Values([]int{1, 2, 3})).Each(func(n int) { got = append(got, n) })
+	FromSeq(slices.Values([]int{1, 2, 3})).ForEach(func(n int) { got = append(got, n) })
 	want := []int{1, 2, 3}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Each() collected %v, want %v", got, want)
+		t.Errorf("ForEach() collected %v, want %v", got, want)
 	}
 }
 
-func TestSeq_Any_ShortCircuits(t *testing.T) {
+func TestSeq_Tap(t *testing.T) {
+	var tapped []int
+	got := FromSeq(slices.Values([]int{1, 2, 3})).
+		Tap(func(n int) { tapped = append(tapped, n) }).
+		Map(func(n int) int { return n * 2 }).
+		Collect()
+
+	if !reflect.DeepEqual(tapped, []int{1, 2, 3}) {
+		t.Errorf("Tap() collected %v, want [1 2 3]", tapped)
+	}
+	if !reflect.DeepEqual(got, []int{2, 4, 6}) {
+		t.Errorf("Map after Tap() = %v, want [2 4 6]", got)
+	}
+}
+
+func TestSeq_AnyOf_ShortCircuits(t *testing.T) {
 	calls := 0
 	source := func(yield func(int) bool) {
 		for i := 1; i <= 1000; i++ {
@@ -93,23 +108,60 @@ func TestSeq_Any_ShortCircuits(t *testing.T) {
 			}
 		}
 	}
-	got := FromSeq(source).Any(func(n int) bool { return n == 3 })
+	got := FromSeq(source).AnyOf(func(n int) bool { return n == 3 })
 	if !got {
-		t.Error("Any() = false, want true")
+		t.Error("AnyOf() = false, want true")
 	}
 	if calls != 3 {
-		t.Errorf("source produced %d items, want exactly 3 (Any must stop at the match)", calls)
+		t.Errorf("source produced %d items, want exactly 3 (AnyOf must stop at the match)", calls)
+	}
+
+	empty := EmptySeq[int]()
+	if empty.AnyOf(func(n int) bool { return true }) {
+		t.Error("EmptySeq AnyOf must be false")
 	}
 }
 
-func TestSeq_All(t *testing.T) {
-	got := FromSeq(slices.Values([]int{2, 4, 6})).All(func(n int) bool { return n%2 == 0 })
+func TestSeq_AllOf(t *testing.T) {
+	got := FromSeq(slices.Values([]int{2, 4, 6})).AllOf(func(n int) bool { return n%2 == 0 })
 	if !got {
-		t.Error("All() = false, want true")
+		t.Error("AllOf() = false, want true")
 	}
-	got = FromSeq(slices.Values([]int{2, 4, 5})).All(func(n int) bool { return n%2 == 0 })
+	got = FromSeq(slices.Values([]int{2, 4, 5})).AllOf(func(n int) bool { return n%2 == 0 })
 	if got {
-		t.Error("All() = true, want false")
+		t.Error("AllOf() = true, want false")
+	}
+
+	empty := EmptySeq[int]()
+	if !empty.AllOf(func(n int) bool { return false }) {
+		t.Error("EmptySeq AllOf must be vacuously true")
+	}
+}
+
+func TestSeq_NoneOf(t *testing.T) {
+	got := FromSeq(slices.Values([]int{1, 3, 5})).NoneOf(func(n int) bool { return n%2 == 0 })
+	if !got {
+		t.Error("NoneOf() = false, want true")
+	}
+	got = FromSeq(slices.Values([]int{1, 3, 4})).NoneOf(func(n int) bool { return n%2 == 0 })
+	if got {
+		t.Error("NoneOf() = true, want false")
+	}
+
+	empty := EmptySeq[int]()
+	if !empty.NoneOf(func(n int) bool { return true }) {
+		t.Error("EmptySeq NoneOf must be true")
+	}
+}
+
+func TestSeq_All_RangeOverFunc(t *testing.T) {
+	seq := SeqOf(10, 20, 30)
+	var got []int
+	for v := range seq.All() {
+		got = append(got, v)
+	}
+	if !reflect.DeepEqual(got, []int{10, 20, 30}) {
+		t.Errorf("for v := range seq.All() = %v, want [10 20 30]", got)
 	}
 }
 
@@ -289,12 +341,20 @@ func TestToStream_Materializes(t *testing.T) {
 	}
 }
 
-func TestSeqOfOption(t *testing.T) {
-	if got := SeqOfOption(adt.Some(7)).Collect(); !reflect.DeepEqual(got, []int{7}) {
-		t.Errorf("SeqOfOption(Some) = %v, want [7]", got)
+func TestOption_All(t *testing.T) {
+	if got := FromSeq(adt.Some(7).All()).Collect(); !reflect.DeepEqual(got, []int{7}) {
+		t.Errorf("FromSeq(Some.All()) = %v, want [7]", got)
 	}
-	if got := SeqOfOption(adt.None[int]()).Collect(); len(got) != 0 {
-		t.Errorf("SeqOfOption(None) = %v, want []", got)
+	if got := FromSeq(adt.None[int]().All()).Collect(); len(got) != 0 {
+		t.Errorf("FromSeq(None.All()) = %v, want []", got)
+	}
+
+	var values []int
+	for v := range adt.Some(42).All() {
+		values = append(values, v)
+	}
+	if !reflect.DeepEqual(values, []int{42}) {
+		t.Errorf("for v := range Some(42).All() = %v, want [42]", values)
 	}
 }
 

@@ -142,6 +142,7 @@ type Option[T any] struct { /* unexported fields */ }
 | `Or(other)` | `func (o Option[T]) Or(other Option[T]) Option[T]` | Returns `o` if `Some`, otherwise returns `other`. |
 | `ToPtr()` | `func (o Option[T]) ToPtr() *T` | Returns pointer to value, or `nil` if absent. |
 | `ToSlice()` | `func (o Option[T]) ToSlice() []T` | Returns single-element slice `[]T{val}` if present, or empty slice `[]T{}`. |
+| `All()` | `func (o Option[T]) All() iter.Seq[T]` | Returns iterator yielding the value once if present, or zero times if absent. |
 | `ToResult(err)` | `func (o Option[T]) ToResult(err error) Result[T]` | Converts to `Result[T]`: `Some(v)` -> `OK(v)`, `None` -> `Err(err)`. |
 | `ToResultGet(fn)` | `func (o Option[T]) ToResultGet(fn func() error) Result[T]` | Converts to `Result[T]`, lazily evaluating `fn()` only if `None`. |
 

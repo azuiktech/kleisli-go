@@ -29,11 +29,20 @@ type Seq[T any] struct {
 // protocol — as a Seq.
 func FromSeq[T any](seq iter.Seq[T]) Seq[T] { return Seq[T]{seq: seq} }
 
-// SeqOfOption lifts an Option into a single-element or empty Seq: Some(v)
-// yields v once, None yields nothing.
-func SeqOfOption[T any](o adt.Option[T]) Seq[T] {
-	return FromSeq(slices.Values(o.ToSlice()))
+// EmptySeq returns an empty lazy Seq.
+func EmptySeq[T any]() Seq[T] {
+	return FromSeq(func(yield func(T) bool) {})
 }
+
+// SeqOf constructs a lazy Seq yielding the given items.
+func SeqOf[T any](items ...T) Seq[T] {
+	return FromSeq(slices.Values(items))
+}
+
+// All returns the underlying iter.Seq[T], enabling Go range-over-func loops:
+//
+//	for x := range s.All() { ... }
+func (s Seq[T]) All() iter.Seq[T] { return s.seq }
 
 // SeqOfMap wraps a map's entries as a Seq of Pair — the lazy counterpart
 // of stream.OfMap. Map iteration order is randomized by Go, so callers
@@ -154,16 +163,6 @@ func (s Seq[T]) ForEach(fn func(T)) {
 	}
 }
 
-// Each calls fn on every element as it's produced and returns the Seq.
-// Prefer ForEach when you only need the side effect — Each exists for
-// cases where chaining on the (now-exhausted) Seq value is intentional.
-func (s Seq[T]) Each(fn func(T)) Seq[T] {
-	for v := range s.seq {
-		fn(v)
-	}
-	return s
-}
-
 // Tap calls fn on each element as it passes through without consuming
 // the sequence — a lazy, non-draining peek for logging or metrics.
 func (s Seq[T]) Tap(fn func(T)) Seq[T] {
@@ -177,9 +176,9 @@ func (s Seq[T]) Tap(fn func(T)) Seq[T] {
 	}}
 }
 
-// Any reports whether fn returns true for at least one element —
+// AnyOf reports whether fn returns true for at least one element —
 // short-circuits, never pulling past the first match.
-func (s Seq[T]) Any(fn func(T) bool) bool {
+func (s Seq[T]) AnyOf(fn func(T) bool) bool {
 	for v := range s.seq {
 		if fn(v) {
 			return true
@@ -188,15 +187,21 @@ func (s Seq[T]) Any(fn func(T) bool) bool {
 	return false
 }
 
-// All reports whether fn returns true for every element — short-circuits
-// on the first failure.
-func (s Seq[T]) All(fn func(T) bool) bool {
+// AllOf reports whether fn returns true for every element — short-circuits
+// on the first failure. Returns true for an empty sequence.
+func (s Seq[T]) AllOf(fn func(T) bool) bool {
 	for v := range s.seq {
 		if !fn(v) {
 			return false
 		}
 	}
 	return true
+}
+
+// NoneOf reports whether fn returns false for every element — short-circuits
+// on the first match. Returns true for an empty sequence.
+func (s Seq[T]) NoneOf(fn func(T) bool) bool {
+	return !s.AnyOf(fn)
 }
 
 // First returns Some(first element satisfying fn), or None —
