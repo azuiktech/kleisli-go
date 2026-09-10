@@ -9,12 +9,22 @@ import (
 )
 
 func TestSet_Constructors(t *testing.T) {
-	t.Run("SetOf", func(t *testing.T) {
-		s := ds.SetOf(1, 2, 3, 2, 1)
+	t.Run("NewSet", func(t *testing.T) {
+		s := ds.NewSet(1, 2, 3, 2, 1)
 		if s.Len() != 3 {
 			t.Fatalf("expected len 3, got %d", s.Len())
 		}
 		if !s.Contains(1) || !s.Contains(2) || !s.Contains(3) {
+			t.Fatalf("missing elements in set: %v", s.ToSlice())
+		}
+	})
+
+	t.Run("SetOf", func(t *testing.T) {
+		s := ds.SetOf("a", "b", "c")
+		if s.Len() != 3 {
+			t.Fatalf("expected len 3, got %d", s.Len())
+		}
+		if !s.Contains("a") || !s.Contains("b") || !s.Contains("c") {
 			t.Fatalf("missing elements in set: %v", s.ToSlice())
 		}
 	})
@@ -53,25 +63,25 @@ func TestSet_Constructors(t *testing.T) {
 	})
 }
 
-func TestSet_NilSafety(t *testing.T) {
+func TestSet_NilAndZeroSafety(t *testing.T) {
 	var s ds.Set[int]
 
 	if s.Len() != 0 {
-		t.Fatalf("nil set Len() want 0, got %d", s.Len())
+		t.Fatalf("zero set Len() want 0, got %d", s.Len())
 	}
 	if !s.Empty() {
-		t.Fatal("nil set Empty() want true, got false")
+		t.Fatal("zero set Empty() want true, got false")
 	}
 	if s.Contains(42) {
-		t.Fatal("nil set Contains(42) want false, got true")
+		t.Fatal("zero set Contains(42) want false, got true")
 	}
 	if slice := s.ToSlice(); slice == nil || len(slice) != 0 {
-		t.Fatalf("nil set ToSlice() want non-nil empty slice, got %v (is nil: %v)", slice, slice == nil)
+		t.Fatalf("zero set ToSlice() want non-nil empty slice, got %v (is nil: %v)", slice, slice == nil)
 	}
 
 	clone := s.Clone()
-	if clone == nil || clone.Len() != 0 {
-		t.Fatalf("nil set Clone() want non-nil empty set, got len %d (is nil: %v)", clone.Len(), clone == nil)
+	if clone.Len() != 0 || !clone.Empty() {
+		t.Fatalf("zero set Clone() want empty set, got len %d", clone.Len())
 	}
 
 	var count int
@@ -79,76 +89,82 @@ func TestSet_NilSafety(t *testing.T) {
 		count++
 	}
 	if count != 0 {
-		t.Fatalf("nil set All() want 0 iterations, got %d", count)
+		t.Fatalf("zero set All() want 0 iterations, got %d", count)
 	}
 
-	empty := ds.SetOf[int]()
+	empty := ds.NewSet[int]()
 	if !s.Equal(empty) {
-		t.Fatal("nil set should be equal to empty set")
+		t.Fatal("zero set should be equal to empty set")
 	}
 	if !empty.Equal(s) {
-		t.Fatal("empty set should be equal to nil set")
+		t.Fatal("empty set should be equal to zero set")
 	}
 }
 
-func TestSet_Mutations(t *testing.T) {
-	t.Run("Add", func(t *testing.T) {
-		s := ds.SetOf[int]()
-		s.Add(1).Add(2).Add(1) // chaining and duplicate handling
+func TestSet_InPlaceMutationsWithoutReassignment(t *testing.T) {
+	t.Run("Add in-place", func(t *testing.T) {
+		s := ds.NewSet[int]()
+		// Standalone call without assigning back
+		s.Add(1)
+		s.Add(2)
+		s.Add(1)
 		if s.Len() != 2 {
-			t.Fatalf("expected len 2, got %d", s.Len())
+			t.Fatalf("expected len 2 after standalone Add, got %d", s.Len())
 		}
 		if !s.Contains(1) || !s.Contains(2) {
-			t.Fatal("elements not found after Add")
+			t.Fatal("elements not found after standalone Add")
+		}
+
+		// Fluent chaining also works
+		s.Add(3).Add(4)
+		if s.Len() != 4 {
+			t.Fatalf("expected len 4 after chained Add, got %d", s.Len())
 		}
 	})
 
-	t.Run("AddAll", func(t *testing.T) {
-		s1 := ds.SetOf(1, 2)
-		s1.AddAll(3, 4, 2)
-		if s1.Len() != 4 {
-			t.Fatalf("expected len 4, got %d", s1.Len())
+	t.Run("AddAll in-place", func(t *testing.T) {
+		s := ds.NewSet(1, 2)
+		// Standalone AddAll without reassignment
+		s.AddAll(3, 4, 2)
+		if s.Len() != 4 {
+			t.Fatalf("expected len 4 after standalone AddAll, got %d", s.Len())
 		}
-
-		s2 := ds.SetOf(5, 6)
-		s1.AddAll(s2.ToSlice()...)
-		if s1.Len() != 6 {
-			t.Fatalf("expected len 6, got %d", s1.Len())
-		}
-		for i := 1; i <= 6; i++ {
-			if !s1.Contains(i) {
-				t.Fatalf("missing element %d after AddAll", i)
+		for i := 1; i <= 4; i++ {
+			if !s.Contains(i) {
+				t.Fatalf("missing element %d after standalone AddAll", i)
 			}
 		}
 	})
 
-	t.Run("Delete", func(t *testing.T) {
-		s := ds.SetOf(10, 20, 30)
-		s.Delete(20).Delete(30)
-		if s.Len() != 1 {
-			t.Fatalf("expected len 1, got %d", s.Len())
+	t.Run("Delete in-place", func(t *testing.T) {
+		s := ds.NewSet(10, 20, 30)
+		// Standalone Delete without reassignment
+		s.Delete(20)
+		if s.Len() != 2 {
+			t.Fatalf("expected len 2 after standalone Delete, got %d", s.Len())
 		}
-		if s.Contains(20) || s.Contains(30) {
-			t.Fatal("removed elements still present")
+		if s.Contains(20) {
+			t.Fatal("element 20 should have been deleted in-place")
 		}
-		if !s.Contains(10) {
-			t.Fatal("unremoved element missing")
+		if !s.Contains(10) || !s.Contains(30) {
+			t.Fatal("remaining elements missing")
 		}
 
-		// Removing non-existent item is a no-op
-		s.Delete(999)
-		if s.Len() != 1 {
-			t.Fatalf("expected len 1 after deleting non-existent, got %d", s.Len())
+		// Fluent chained delete
+		s.Delete(10).Delete(30)
+		if !s.Empty() {
+			t.Fatalf("expected empty set, got len %d", s.Len())
 		}
 	})
 
-	t.Run("DeleteFunc", func(t *testing.T) {
-		s := ds.SetOf(1, 2, 3, 4, 5, 6)
+	t.Run("DeleteFunc in-place", func(t *testing.T) {
+		s := ds.NewSet(1, 2, 3, 4, 5, 6)
+		// Standalone DeleteFunc without reassignment
 		s.DeleteFunc(func(n int) bool {
 			return n%2 == 0
 		})
 		if s.Len() != 3 {
-			t.Fatalf("expected len 3 after DeleteFunc, got %d", s.Len())
+			t.Fatalf("expected len 3 after standalone DeleteFunc, got %d", s.Len())
 		}
 		if s.Contains(2) || s.Contains(4) || s.Contains(6) {
 			t.Fatal("even elements not removed by DeleteFunc")
@@ -158,27 +174,33 @@ func TestSet_Mutations(t *testing.T) {
 		}
 	})
 
-	t.Run("Clear", func(t *testing.T) {
-		s := ds.SetOf("a", "b", "c")
+	t.Run("Clear in-place without reassignment", func(t *testing.T) {
+		s := ds.NewSet("a", "b", "c")
+		// Critical requirement: standalone Clear() must clear the set in place
 		s.Clear()
 		if s.Len() != 0 || !s.Empty() {
-			t.Fatalf("expected empty set after Clear, got len %d", s.Len())
+			t.Fatalf("expected empty set after standalone Clear(), got len %d", s.Len())
 		}
-		if s.Contains("a") {
-			t.Fatal("set still contains elements after Clear")
+		if s.Contains("a") || s.Contains("b") || s.Contains("c") {
+			t.Fatal("set still contains elements after standalone Clear()")
+		}
+		// Can still add to s after clear
+		s.Add("x")
+		if s.Len() != 1 || !s.Contains("x") {
+			t.Fatalf("expected to add 'x' after clear, got len %d", s.Len())
 		}
 	})
 }
 
 func TestSet_CloneAndEqual(t *testing.T) {
-	s1 := ds.SetOf(1, 2, 3)
+	s1 := ds.NewSet(1, 2, 3)
 	s2 := s1.Clone()
 
 	if !s1.Equal(s2) {
 		t.Fatal("clone must be equal to original")
 	}
 
-	// Mutate clone; original must remain unaffected
+	// Mutate clone in-place; original must remain unaffected
 	s2.Add(4)
 	if s1.Equal(s2) {
 		t.Fatal("original and clone should not be equal after clone mutation")
@@ -186,16 +208,19 @@ func TestSet_CloneAndEqual(t *testing.T) {
 	if s1.Contains(4) {
 		t.Fatal("original should not contain element added to clone")
 	}
+	if !s2.Contains(4) {
+		t.Fatal("clone must contain added element")
+	}
 
-	s3 := ds.SetOf(1, 2, 4)
+	s3 := ds.NewSet(1, 2, 4)
 	if s1.Equal(s3) {
 		t.Fatal("differing sets should not be equal")
 	}
 }
 
 func TestSet_Algebra(t *testing.T) {
-	a := ds.SetOf(1, 2, 3)
-	b := ds.SetOf(3, 4, 5)
+	a := ds.NewSet(1, 2, 3)
+	b := ds.NewSet(3, 4, 5)
 
 	t.Run("Union", func(t *testing.T) {
 		u := a.Union(b)
@@ -258,7 +283,7 @@ func TestSet_Algebra(t *testing.T) {
 	})
 
 	t.Run("IsSubset and IsSuperset", func(t *testing.T) {
-		sub := ds.SetOf(1, 2)
+		sub := ds.NewSet(1, 2)
 		if !sub.IsSubset(a) {
 			t.Fatal("{1, 2} should be subset of {1, 2, 3}")
 		}
@@ -273,21 +298,21 @@ func TestSet_Algebra(t *testing.T) {
 			t.Fatal("Set should be subset and superset of itself")
 		}
 		// Empty set subset of all
-		empty := ds.SetOf[int]()
+		empty := ds.NewSet[int]()
 		if !empty.IsSubset(a) {
 			t.Fatal("empty set should be subset of any set")
 		}
 	})
 
 	t.Run("IsDisjoint", func(t *testing.T) {
-		d := ds.SetOf(6, 7)
+		d := ds.NewSet(6, 7)
 		if !a.IsDisjoint(d) {
 			t.Fatal("{1, 2, 3} and {6, 7} should be disjoint")
 		}
 		if a.IsDisjoint(b) {
 			t.Fatal("{1, 2, 3} and {3, 4, 5} share 3 and should not be disjoint")
 		}
-		empty := ds.SetOf[int]()
+		empty := ds.NewSet[int]()
 		if !a.IsDisjoint(empty) {
 			t.Fatal("any set should be disjoint with empty set")
 		}
@@ -295,7 +320,7 @@ func TestSet_Algebra(t *testing.T) {
 }
 
 func TestSet_IteratorAndStreamIntegration(t *testing.T) {
-	s := ds.SetOf(10, 20, 30)
+	s := ds.NewSet(10, 20, 30)
 
 	// Standard Go range-over-func
 	var collected []int
