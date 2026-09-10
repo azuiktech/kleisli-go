@@ -3,6 +3,7 @@ package adt
 import (
 	"encoding/json"
 	"fmt"
+	"iter"
 	"reflect"
 )
 
@@ -201,6 +202,15 @@ func (o Option[T]) ToSlice() []T {
 		return nil
 	}
 	return []T{o.val}
+}
+
+// All returns an iter.Seq[T] yielding the value once if present, or zero times if absent.
+func (o Option[T]) All() iter.Seq[T] {
+	return func(yield func(T) bool) {
+		if o.ok {
+			yield(o.val)
+		}
+	}
 }
 
 // Filter keeps a present value only if fn reports true; otherwise returns None.

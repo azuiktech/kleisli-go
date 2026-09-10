@@ -29,7 +29,7 @@ func IsOriginAllowed(allowedOrigins []string, requestOrigin string) bool {
 		return true // Same-origin or non-browser request
 	}
 
-	return stream.Of(allowedOrigins).Any(func(allowed string) bool {
+	return stream.Of(allowedOrigins).AnyOf(func(allowed string) bool {
 		if allowed == "*" || allowed == requestOrigin {
 			return true
 		}

@@ -439,3 +439,67 @@ func TestClone_IsIndependentOfSource(t *testing.T) {
 		t.Error("Clone() must not share backing array with source")
 	}
 }
+
+func TestStream_TapAndForEach(t *testing.T) {
+	var tapped []int
+	var foreach []int
+
+	stream := Of([]int{1, 2, 3}).
+		Tap(func(n int) { tapped = append(tapped, n) })
+
+	stream.ForEach(func(n int) { foreach = append(foreach, n*10) })
+
+	if !reflect.DeepEqual(tapped, []int{1, 2, 3}) {
+		t.Errorf("Tap collected %v, want [1 2 3]", tapped)
+	}
+	if !reflect.DeepEqual(foreach, []int{10, 20, 30}) {
+		t.Errorf("ForEach collected %v, want [10 20 30]", foreach)
+	}
+}
+
+func TestStream_Quantifiers(t *testing.T) {
+	s := Of([]int{2, 4, 6})
+
+	if !s.AllOf(func(n int) bool { return n%2 == 0 }) {
+		t.Error("AllOf want true, got false")
+	}
+	if s.AllOf(func(n int) bool { return n == 4 }) {
+		t.Error("AllOf want false, got true")
+	}
+
+	if !s.AnyOf(func(n int) bool { return n == 4 }) {
+		t.Error("AnyOf want true, got false")
+	}
+	if s.AnyOf(func(n int) bool { return n == 99 }) {
+		t.Error("AnyOf want false, got true")
+	}
+
+	if !s.NoneOf(func(n int) bool { return n%2 != 0 }) {
+		t.Error("NoneOf want true, got false")
+	}
+	if s.NoneOf(func(n int) bool { return n == 4 }) {
+		t.Error("NoneOf want false, got true")
+	}
+
+	empty := Empty[int]()
+	if !empty.AllOf(func(n int) bool { return false }) {
+		t.Error("empty AllOf want true")
+	}
+	if empty.AnyOf(func(n int) bool { return true }) {
+		t.Error("empty AnyOf want false")
+	}
+	if !empty.NoneOf(func(n int) bool { return true }) {
+		t.Error("empty NoneOf want true")
+	}
+}
+
+func TestStream_All_RangeOverFunc(t *testing.T) {
+	s := Of([]string{"a", "b", "c"})
+	var collected []string
+	for v := range s.All() {
+		collected = append(collected, v)
+	}
+	if !reflect.DeepEqual(collected, []string{"a", "b", "c"}) {
+		t.Errorf("for v := range s.All() = %v, want [a b c]", collected)
+	}
+}

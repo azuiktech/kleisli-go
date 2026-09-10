@@ -300,7 +300,7 @@ func TestIn_StreamIntegration(t *testing.T) {
 	t.Run("subset", func(t *testing.T) {
 		userRoles := []string{"admin", "editor"}
 		validRoles := []string{"admin", "editor", "owner"}
-		isSubset := stream.Of(userRoles).All(fn.In(validRoles...))
+		isSubset := stream.Of(userRoles).AllOf(fn.In(validRoles...))
 		if !isSubset {
 			t.Fatal("expected userRoles to be a subset of validRoles")
 		}
@@ -308,7 +308,7 @@ func TestIn_StreamIntegration(t *testing.T) {
 
 	t.Run("intersection / hasAny", func(t *testing.T) {
 		userRoles := []string{"viewer", "editor"}
-		hasOverlap := stream.Of(userRoles).Any(fn.In("admin", "editor"))
+		hasOverlap := stream.Of(userRoles).AnyOf(fn.In("admin", "editor"))
 		if !hasOverlap {
 			t.Fatal("expected userRoles to intersect with admin/editor")
 		}
@@ -316,7 +316,7 @@ func TestIn_StreamIntegration(t *testing.T) {
 
 	t.Run("disjoint", func(t *testing.T) {
 		userRoles := []string{"viewer", "guest"}
-		hasOverlap := stream.Of(userRoles).Any(fn.In("admin", "editor"))
+		hasOverlap := stream.Of(userRoles).AnyOf(fn.In("admin", "editor"))
 		if hasOverlap {
 			t.Fatal("expected userRoles to be disjoint from admin/editor")
 		}
