@@ -46,13 +46,13 @@ func FromSeq[T comparable](seq iter.Seq[T]) Set[T] {
 	return s
 }
 
-// Add inserts item into the set and returns s for fluent chaining.
+// Add inserts item into the set in place and returns s.
 func (s Set[T]) Add(item T) Set[T] {
 	s.data[item] = adt.Void
 	return s
 }
 
-// AddAll inserts all items into s and returns s.
+// AddAll inserts all items into s in place and returns s.
 func (s Set[T]) AddAll(items ...T) Set[T] {
 	for _, item := range items {
 		s.data[item] = adt.Void
@@ -60,7 +60,7 @@ func (s Set[T]) AddAll(items ...T) Set[T] {
 	return s
 }
 
-// Delete removes item from s and returns s.
+// Delete removes item from s in place and returns s.
 func (s Set[T]) Delete(item T) Set[T] {
 	delete(s.data, item)
 	return s
@@ -74,7 +74,7 @@ func (s Set[T]) DeleteFunc(pred func(T) bool) Set[T] {
 	return s
 }
 
-// Clear removes all elements from s and returns s.
+// Clear removes all elements from s in place and returns s.
 func (s Set[T]) Clear() Set[T] {
 	clear(s.data)
 	return s
@@ -96,7 +96,7 @@ func (s Set[T]) Empty() bool {
 	return len(s.data) == 0
 }
 
-// Clone returns an independent shallow copy of s. Never returns nil.
+// Clone returns an independent shallow copy of s. Never returns nil backing map.
 func (s Set[T]) Clone() Set[T] {
 	res := SetWithCapacity[T](s.Len())
 	maps.Copy(res.data, s.data)
