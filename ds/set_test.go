@@ -34,7 +34,8 @@ func TestSet_Constructors(t *testing.T) {
 		if s.Len() != 0 || !s.Empty() {
 			t.Fatalf("expected empty set with capacity, got len %d", s.Len())
 		}
-		s.Add("alpha").Add("beta")
+		s.Add("alpha")
+		s.Add("beta")
 		if s.Len() != 2 {
 			t.Fatalf("expected len 2, got %d", s.Len())
 		}
@@ -115,10 +116,11 @@ func TestSet_InPlaceMutationsWithoutReassignment(t *testing.T) {
 			t.Fatal("elements not found after standalone Add")
 		}
 
-		// Fluent chaining also works
-		s.Add(3).Add(4)
+		// Additional additions
+		s.Add(3)
+		s.Add(4)
 		if s.Len() != 4 {
-			t.Fatalf("expected len 4 after chained Add, got %d", s.Len())
+			t.Fatalf("expected len 4 after Add, got %d", s.Len())
 		}
 	})
 
@@ -150,8 +152,8 @@ func TestSet_InPlaceMutationsWithoutReassignment(t *testing.T) {
 			t.Fatal("remaining elements missing")
 		}
 
-		// Fluent chained delete
-		s.Delete(10).Delete(30)
+		s.Delete(10)
+		s.Delete(30)
 		if !s.Empty() {
 			t.Fatalf("expected empty set, got len %d", s.Len())
 		}

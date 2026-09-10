@@ -28,7 +28,7 @@ Comprehensive, function-by-function chapterwise API catalogs and real-world reci
 | [Chapter 2: fn](docs/02_fn.md) | **Functional Utilities** | Value helpers, bound predicates, point-free composition, rotated algorithms, parsers, string transforms |
 | [Chapter 3: stream](docs/03_stream.md) | **Data Pipelines** | Eager `Stream[T]`, lazy `Seq[T]`, numeric aggregations (`NumberStream`), async bridging |
 | [Chapter 4: async](docs/04_async.md) | **Concurrency & Coroutines** | CSP `Pipe[T]`, `Future`/`Promise`, `Task`/`Co` coroutine engine, `Sync[T]`, `Handle[D]`, `Ctx[T]` |
-| [Chapter 5: ds](docs/05_ds.md) | **Data Structures** | Circular `RingBuffer`, thread-safe `SyncRingBuffer`, multi-indexed `Table[V]`, 2D `Grid[R, C, V]` |
+| [Chapter 5: ds](docs/05_ds.md) | **Data Structures** | Circular `RingBuffer`, thread-safe `SyncRingBuffer`, multi-indexed `Table[V]`, 2D `Grid[R, C, V]`, `Set[T]`, `Map[K, V]`, `Vec[T]` |
 | [Chapter 6: examples](docs/06_examples.md) | **Practical Recipes** | 10 production recipes (CORS/Auth, Batch URLs, Weather Coroutine, Graph Audit, etc.) |
 
 ---
@@ -272,12 +272,26 @@ for action, perm := range grid.Row("engineering") {
 }
 ```
 
+#### Encapsulated Collections (`Set[T]`, `Map[K, V]`, `Vec[T]`)
+Functional, encapsulated collections with in-place mutation, iterators, and zero-allocation semantics:
+
+```go
+// Set & Map: 8-byte value structs, zero nil-pointer overhead
+set := ds.NewSet("read", "write").Add("admin")
+m := ds.NewMap(ds.EntryOf("host", "localhost"), ds.EntryOf("port", "8080"))
+m.Put("env", "prod")
+
+// Vec: Dynamic array protected by noCopy sentinel
+vec := ds.NewVec[int]()
+vec.PushAll(10, 20, 30)
+```
+
 ---
 
 ## Installation
 
 ```console
-go get github.com/azuiktech/kleisli-go@v0.20.0
+go get github.com/azuiktech/kleisli-go@v0.21.0
 ```
 
 Requires Go 1.27 or later (generic method type parameters).
