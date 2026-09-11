@@ -28,7 +28,7 @@ Comprehensive, function-by-function chapterwise API catalogs and real-world reci
 | [Chapter 2: fn](docs/02_fn.md) | **Functional Utilities** | Value helpers, bound predicates, point-free composition, rotated algorithms, parsers, string transforms |
 | [Chapter 3: stream](docs/03_stream.md) | **Data Pipelines** | Eager `Stream[T]`, lazy `Seq[T]`, numeric aggregations (`NumberStream`), async bridging |
 | [Chapter 4: async](docs/04_async.md) | **Concurrency & Coroutines** | CSP `Pipe[T]`, `Future`/`Promise`, `Task`/`Co` coroutine engine, `Sync[T]`, `Handle[D]`, `Ctx[T]` |
-| [Chapter 5: ds](docs/05_ds.md) | **Data Structures** | Circular `RingBuffer`, thread-safe `SyncRingBuffer`, multi-indexed `Table[V]`, 2D `Grid[R, C, V]`, `Set[T]`, `Map[K, V]`, `Vec[T]` |
+| [Chapter 5: ds](docs/05_ds.md) | **Data Structures** | Circular `RingBuffer`, thread-safe `SyncRingBuffer`, multi-indexed `Table[V]`, 2D `Grid[R, C, V]`, `Set[T]`, `Map[K, V]`, `Vec[T]`, `AdjList`, `IncidenceList` |
 | [Chapter 6: examples](docs/06_examples.md) | **Practical Recipes** | 10 production recipes (CORS/Auth, Batch URLs, Weather Coroutine, Graph Audit, etc.) |
 
 ---
@@ -291,7 +291,7 @@ vec.PushAll(10, 20, 30)
 ## Installation
 
 ```console
-go get github.com/azuiktech/kleisli-go@v0.21.0
+go get github.com/azuiktech/kleisli-go@v0.22.0
 ```
 
 Requires Go 1.27 or later (generic method type parameters).
