@@ -9,27 +9,31 @@ import (
 type NodeID int
 type EdgeID int
 
-// EdgeListGraph is a graph interface providing iteration over all edges.
+// EdgeListGraph is a graph interface providing iteration over all edges and total edge count.
 type EdgeListGraph[E any] interface {
 	Edges() iter.Seq2[EdgeID, E]
+	EdgeCount() int
 }
 
-// NodeListGraph is a graph interface providing iteration over all nodes.
+// NodeListGraph is a graph interface providing iteration over all nodes and total node count.
 type NodeListGraph[N any] interface {
 	Nodes() iter.Seq2[NodeID, N]
+	NodeCount() int
 }
 
-// IncidenceGraph is a directed graph interface providing outgoing edges and endpoint queries.
+// IncidenceGraph is a directed graph interface providing outgoing edges, degree, and endpoint queries.
 type IncidenceGraph[E any] interface {
 	OutEdges(id NodeID) iter.Seq2[EdgeID, E]
+	OutDegree(id NodeID) int
 	Src(id EdgeID) NodeID
 	Dst(id EdgeID) NodeID
 }
 
-// BidirectionalGraph extends IncidenceGraph with incoming edges queries.
+// BidirectionalGraph extends IncidenceGraph with incoming edges and in-degree queries.
 type BidirectionalGraph[E any] interface {
 	IncidenceGraph[E]
 	InEdges(id NodeID) iter.Seq2[EdgeID, E]
+	InDegree(id NodeID) int
 }
 
 type adjNode[N any] struct {
@@ -71,6 +75,14 @@ func (a *AdjList[N, E]) AddEdge(data E, src, dst NodeID) EdgeID {
 	a.nodes[src].outEdges = append(a.nodes[src].outEdges, id)
 	a.nodes[dst].inEdges = append(a.nodes[dst].inEdges, id)
 	return id
+}
+
+func (a *AdjList[N, E]) NodeCount() int {
+	return len(a.nodes)
+}
+
+func (a *AdjList[N, E]) EdgeCount() int {
+	return len(a.edges)
 }
 
 func (a *AdjList[N, E]) Node(id NodeID) adt.Option[N] {
@@ -133,6 +145,20 @@ func (a *AdjList[N, E]) InEdges(id NodeID) iter.Seq2[EdgeID, E] {
 	}
 }
 
+func (a *AdjList[N, E]) OutDegree(id NodeID) int {
+	if int(id) < 0 || int(id) >= len(a.nodes) {
+		return 0
+	}
+	return len(a.nodes[id].outEdges)
+}
+
+func (a *AdjList[N, E]) InDegree(id NodeID) int {
+	if int(id) < 0 || int(id) >= len(a.nodes) {
+		return 0
+	}
+	return len(a.nodes[id].inEdges)
+}
+
 func (a *AdjList[N, E]) Src(id EdgeID) NodeID {
 	return a.edges[id].src
 }
@@ -172,6 +198,14 @@ func (a *IncidenceList[N, E]) AddEdge(data E, src, dst NodeID) EdgeID {
 	})
 	a.nodes[src].outEdges = append(a.nodes[src].outEdges, id)
 	return id
+}
+
+func (a *IncidenceList[N, E]) NodeCount() int {
+	return len(a.nodes)
+}
+
+func (a *IncidenceList[N, E]) EdgeCount() int {
+	return len(a.edges)
 }
 
 func (a *IncidenceList[N, E]) Node(id NodeID) adt.Option[N] {
@@ -219,6 +253,13 @@ func (a *IncidenceList[N, E]) OutEdges(id NodeID) iter.Seq2[EdgeID, E] {
 			}
 		}
 	}
+}
+
+func (a *IncidenceList[N, E]) OutDegree(id NodeID) int {
+	if int(id) < 0 || int(id) >= len(a.nodes) {
+		return 0
+	}
+	return len(a.nodes[id].outEdges)
 }
 
 func (a *IncidenceList[N, E]) Src(id EdgeID) NodeID {

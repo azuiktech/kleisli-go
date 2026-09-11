@@ -10,6 +10,20 @@ import (
 func TestAdjList_Empty(t *testing.T) {
 	g := ds.NewAdjList[string, int]()
 
+	// Sizing
+	if g.NodeCount() != 0 {
+		t.Fatalf("expected 0 NodeCount, got %d", g.NodeCount())
+	}
+	if g.EdgeCount() != 0 {
+		t.Fatalf("expected 0 EdgeCount, got %d", g.EdgeCount())
+	}
+	if g.OutDegree(ds.NodeID(0)) != 0 {
+		t.Fatalf("expected 0 OutDegree on empty graph, got %d", g.OutDegree(ds.NodeID(0)))
+	}
+	if g.InDegree(ds.NodeID(0)) != 0 {
+		t.Fatalf("expected 0 InDegree on empty graph, got %d", g.InDegree(ds.NodeID(0)))
+	}
+
 	// Nodes iteration on empty graph
 	count := 0
 	for range g.Nodes() {
@@ -63,6 +77,9 @@ func TestAdjList_AddNodeAndLookup(t *testing.T) {
 
 	if n0 != 0 || n1 != 1 || n2 != 2 {
 		t.Fatalf("unexpected node IDs: %d, %d, %d", n0, n1, n2)
+	}
+	if g.NodeCount() != 3 {
+		t.Fatalf("expected 3 NodeCount, got %d", g.NodeCount())
 	}
 
 	// Direct lookups
@@ -120,6 +137,23 @@ func TestAdjList_AddEdgeAndTraversal(t *testing.T) {
 
 	if e0 != 0 || e1 != 1 || e2 != 2 {
 		t.Fatalf("unexpected edge IDs: %d, %d, %d", e0, e1, e2)
+	}
+	if g.EdgeCount() != 3 {
+		t.Fatalf("expected 3 EdgeCount, got %d", g.EdgeCount())
+	}
+
+	// Degrees
+	if g.OutDegree(nA) != 2 || g.InDegree(nA) != 0 {
+		t.Fatalf("unexpected degree for nA: out=%d, in=%d", g.OutDegree(nA), g.InDegree(nA))
+	}
+	if g.OutDegree(nB) != 1 || g.InDegree(nB) != 1 {
+		t.Fatalf("unexpected degree for nB: out=%d, in=%d", g.OutDegree(nB), g.InDegree(nB))
+	}
+	if g.OutDegree(nC) != 0 || g.InDegree(nC) != 2 {
+		t.Fatalf("unexpected degree for nC: out=%d, in=%d", g.OutDegree(nC), g.InDegree(nC))
+	}
+	if g.OutDegree(ds.NodeID(-1)) != 0 || g.InDegree(ds.NodeID(99)) != 0 {
+		t.Fatal("expected 0 degree for out-of-bounds node IDs")
 	}
 
 	// Direct edge lookups
@@ -191,10 +225,24 @@ func TestAdjList_AddEdgeAndTraversal(t *testing.T) {
 func TestIncidenceList_Basics(t *testing.T) {
 	g := ds.NewIncidenceList[string, float64]()
 
+	if g.NodeCount() != 0 || g.EdgeCount() != 0 {
+		t.Fatalf("expected 0 counts initially: nodes=%d, edges=%d", g.NodeCount(), g.EdgeCount())
+	}
+
 	n0 := g.AddNode("first")
 	n1 := g.AddNode("second")
 
 	e0 := g.AddEdge(3.14, n0, n1)
+
+	if g.NodeCount() != 2 || g.EdgeCount() != 1 {
+		t.Fatalf("expected 2 nodes, 1 edge: nodes=%d, edges=%d", g.NodeCount(), g.EdgeCount())
+	}
+	if g.OutDegree(n0) != 1 || g.OutDegree(n1) != 0 {
+		t.Fatalf("unexpected out degree: n0=%d, n1=%d", g.OutDegree(n0), g.OutDegree(n1))
+	}
+	if g.OutDegree(ds.NodeID(99)) != 0 {
+		t.Fatal("expected 0 out degree for out-of-bounds node")
+	}
 
 	// Direct lookups
 	if g.Node(n0).MustGet() != "first" || g.Node(n1).MustGet() != "second" {
@@ -240,59 +288,43 @@ func TestGraph_InterfacePolymorphism(t *testing.T) {
 	inc.AddEdge("0->1", n0, n1)
 
 	// Helper functions testing interface contracts
-	countNodes := func(g ds.NodeListGraph[string]) int {
-		c := 0
-		for range g.Nodes() {
-			c++
-		}
-		return c
+	getNodeCount := func(g ds.NodeListGraph[string]) int {
+		return g.NodeCount()
 	}
 
-	countEdges := func(g ds.EdgeListGraph[string]) int {
-		c := 0
-		for range g.Edges() {
-			c++
-		}
-		return c
+	getEdgeCount := func(g ds.EdgeListGraph[string]) int {
+		return g.EdgeCount()
 	}
 
-	findOutgoingTargets := func(g ds.IncidenceGraph[string], start ds.NodeID) []ds.NodeID {
-		var targets []ds.NodeID
-		for eid := range g.OutEdges(start) {
-			targets = append(targets, g.Dst(eid))
-		}
-		return targets
+	getOutDegree := func(g ds.IncidenceGraph[string], id ds.NodeID) int {
+		return g.OutDegree(id)
 	}
 
-	findIncomingSources := func(g ds.BidirectionalGraph[string], target ds.NodeID) []ds.NodeID {
-		var sources []ds.NodeID
-		for eid := range g.InEdges(target) {
-			sources = append(sources, g.Src(eid))
-		}
-		return sources
+	getInDegree := func(g ds.BidirectionalGraph[string], id ds.NodeID) int {
+		return g.InDegree(id)
 	}
 
-	// Both satisfy NodeListGraph
-	if countNodes(adj) != 2 || countNodes(inc) != 2 {
-		t.Fatal("NodeListGraph polymorphism failed")
+	// NodeListGraph
+	if getNodeCount(adj) != 2 || getNodeCount(inc) != 2 {
+		t.Fatal("NodeListGraph NodeCount polymorphism failed")
 	}
 
-	// Both satisfy EdgeListGraph
-	if countEdges(adj) != 1 || countEdges(inc) != 1 {
-		t.Fatal("EdgeListGraph polymorphism failed")
+	// EdgeListGraph
+	if getEdgeCount(adj) != 1 || getEdgeCount(inc) != 1 {
+		t.Fatal("EdgeListGraph EdgeCount polymorphism failed")
 	}
 
-	// Both satisfy IncidenceGraph
-	if !slices.Equal(findOutgoingTargets(adj, nA), []ds.NodeID{nB}) {
-		t.Fatal("IncidenceGraph OutEdges on AdjList failed")
+	// IncidenceGraph
+	if getOutDegree(adj, nA) != 1 || getOutDegree(inc, n0) != 1 {
+		t.Fatal("IncidenceGraph OutDegree polymorphism failed")
 	}
-	if !slices.Equal(findOutgoingTargets(inc, n0), []ds.NodeID{n1}) {
-		t.Fatal("IncidenceGraph OutEdges on IncidenceList failed")
+	if getOutDegree(adj, nB) != 0 || getOutDegree(inc, n1) != 0 {
+		t.Fatal("IncidenceGraph OutDegree 0 check failed")
 	}
 
-	// Only AdjList satisfies BidirectionalGraph
-	if !slices.Equal(findIncomingSources(adj, nB), []ds.NodeID{nA}) {
-		t.Fatal("BidirectionalGraph InEdges on AdjList failed")
+	// BidirectionalGraph (only AdjList)
+	if getInDegree(adj, nB) != 1 || getInDegree(adj, nA) != 0 {
+		t.Fatal("BidirectionalGraph InDegree polymorphism failed")
 	}
 }
 
@@ -303,6 +335,13 @@ func TestGraph_EarlyBreakIterator(t *testing.T) {
 	}
 	for i := 1; i < 10; i++ {
 		g.AddEdge(i*10, ds.NodeID(0), ds.NodeID(i))
+	}
+
+	if g.NodeCount() != 10 || g.EdgeCount() != 9 {
+		t.Fatalf("unexpected counts: nodes=%d, edges=%d", g.NodeCount(), g.EdgeCount())
+	}
+	if g.OutDegree(ds.NodeID(0)) != 9 {
+		t.Fatalf("expected out-degree 9 for node 0, got %d", g.OutDegree(ds.NodeID(0)))
 	}
 
 	// Break early in Nodes()
