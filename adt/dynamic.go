@@ -54,10 +54,13 @@ func Dyn(v any) Any {
 func (d Any) Value() any { return d.value }
 
 // As extracts the boxed value as T, returning None if the assertion fails or
-// d holds no value.
-func As[T any](d Any) Option[T] {
-	v, ok := d.value.(T)
-	return FromOk(v, ok)
+// v holds no value. If v is an Any, it unboxes its value; otherwise asserts directly.
+func As[T any](v any) Option[T] {
+	if a, ok := v.(Any); ok {
+		v = a.value
+	}
+	val, ok := v.(T)
+	return FromOk(val, ok)
 }
 
 type wireAny struct {

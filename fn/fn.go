@@ -14,9 +14,22 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/azuiktech/kleisli-go/adt"
 )
 
 // ── Value helpers ─────────────────────────────────────────────────────────────
+
+// As safely asserts v as type T, returning Some(val) or None.
+// Transparently unboxes adt.Any if an Any wrapper is passed.
+func As[T any](v any) adt.Option[T] {
+	return adt.As[T](v)
+}
+
+// Discard accepts any argument and returns adt.Void.
+func Discard[T any](T) adt.Unit {
+	return adt.Void
+}
 
 // Must returns val if err is nil; otherwise it panics with err.
 func Must[T any](val T, err error) T {
@@ -85,6 +98,12 @@ func CondGet[T any](condition bool, ifTrue func() T, ifFalse func() T) T {
 // Ptr returns a pointer to v.
 func Ptr[T any](v T) *T { return &v }
 
+// IsNil reports whether ptr is nil.
+func IsNil[T any](ptr *T) bool { return ptr == nil }
+
+// IsNotNil reports whether ptr is non-nil.
+func IsNotNil[T any](ptr *T) bool { return ptr != nil }
+
 // Deref returns *ptr if ptr is non-nil; otherwise returns fallback.
 func Deref[T any](ptr *T, fallback T) T {
 	if ptr != nil {
@@ -131,6 +150,12 @@ func IsZero[T comparable](v T) bool {
 	return v == zero
 }
 
+// IsNonZero reports whether v is not equal to the zero value of type T.
+func IsNonZero[T comparable](v T) bool {
+	var zero T
+	return v != zero
+}
+
 // Clamp returns v if lo ≤ v ≤ hi, lo if v < lo, or hi if v > hi.
 func Clamp[T cmp.Ordered](v, lo, hi T) T { return min(max(v, lo), hi) }
 
@@ -146,6 +171,12 @@ func Coalesce[T comparable](vals ...T) T {
 }
 
 // ── Predicate combinators ─────────────────────────────────────────────────────
+
+// True is a predicate that ignores its argument and returns true.
+func True[T any](T) bool { return true }
+
+// False is a predicate that ignores its argument and returns false.
+func False[T any](T) bool { return false }
 
 // Not negates a predicate: Not(f)(x) == !f(x).
 func Not[T any](f func(T) bool) func(T) bool {
