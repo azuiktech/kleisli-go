@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"sync"
 
 	"github.com/azuiktech/kleisli-go/adt"
 )
@@ -317,22 +316,7 @@ func Constant[T, U any](val U) func(T) U {
 
 // Memoize returns a thread-safe memoized version of fn, called at most once per key.
 func Memoize[K comparable, V any](fn func(K) V) func(K) V {
-	var cache sync.Map
-	return func(k K) V {
-		getter := sync.OnceValue(func() V { return fn(k) })
-		actual, _ := cache.LoadOrStore(k, getter)
-		return actual.(func() V)()
-	}
-}
-
-// MemoizeErr returns a thread-safe memoized version of a fallible fn, called at most once per key.
-func MemoizeErr[K comparable, V any](fn func(K) (V, error)) func(K) (V, error) {
-	var cache sync.Map
-	return func(k K) (V, error) {
-		getter := sync.OnceValues(func() (V, error) { return fn(k) })
-		actual, _ := cache.LoadOrStore(k, getter)
-		return actual.(func() (V, error))()
-	}
+	return adt.Memoize(fn)
 }
 
 // ── Rotated-sequence algorithms ───────────────────────────────────────────────

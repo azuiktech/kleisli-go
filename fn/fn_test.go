@@ -195,6 +195,26 @@ func TestMemoize(t *testing.T) {
 	}
 }
 
+func TestMemoize_Result(t *testing.T) {
+	calls := 0
+	f := fn.Memoize(func(k string) adt.Result[int] {
+		calls++
+		if k == "err" {
+			return adt.Err[int](errors.New("fail"))
+		}
+		return adt.OK(len(k))
+	})
+
+	r1 := f("hello")
+	r2 := f("hello")
+	if !r1.IsOK() || r1.MustGet() != 5 || calls != 1 {
+		t.Fatalf("want OK(5), calls=1; got %v, calls=%d", r1, calls)
+	}
+	if r2.MustGet() != 5 || calls != 1 {
+		t.Fatalf("want cached OK(5), calls=1; got %v, calls=%d", r2, calls)
+	}
+}
+
 // ── FindRotated / After / Before ──────────────────────────────────────────────
 
 func TestFindRotated_found_in_first(t *testing.T) {

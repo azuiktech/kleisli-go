@@ -76,16 +76,3 @@ func Memoize[K comparable, V any](fn func(K) V) func(K) V {
 		return actual.(func() V)()
 	}
 }
-
-// MemoizeErr returns a thread-safe memoized version of a fallible function.
-// fn is executed at most once per distinct key K, memoizing both value and error.
-func MemoizeErr[K comparable, V any](fn func(K) (V, error)) func(K) (V, error) {
-	var cache sync.Map
-	return func(k K) (V, error) {
-		getter := sync.OnceValues(func() (V, error) {
-			return fn(k)
-		})
-		actual, _ := cache.LoadOrStore(k, getter)
-		return actual.(func() (V, error))()
-	}
-}

@@ -219,8 +219,7 @@ type Lazy[T any] struct { /* unexported fields */ }
 
 | Function | Signature | Description |
 |---|---|---|
-| `Memoize[K, V](fn)` | `func Memoize[K comparable, V any](fn func(K) V) func(K) V` | Returns a thread-safe memoized version of `fn` cached per key `K`. |
-| `MemoizeErr[K, V](fn)` | `func MemoizeErr[K comparable, V any](fn func(K) (V, error)) func(K) (V, error)` | Thread-safe memoization caching both value and error per key `K`. |
+| `Memoize[K, V](fn)` | `func Memoize[K comparable, V any](fn func(K) V) func(K) V` | Returns a thread-safe memoized version of `fn` cached per key `K`. Works seamlessly with `Result[V]`. |
 
 ```go
 expensiveOp := adt.Memoize(func(path string) string {
