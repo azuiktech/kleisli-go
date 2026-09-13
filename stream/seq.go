@@ -44,13 +44,13 @@ func SeqOf[T any](items ...T) Seq[T] {
 //	for x := range s.All() { ... }
 func (s Seq[T]) All() iter.Seq[T] { return s.seq }
 
-// SeqOfMap wraps a map's entries as a Seq of Pair — the lazy counterpart
+// SeqOfMap wraps a map's entries as a Seq of adt.Pair — the lazy counterpart
 // of stream.OfMap. Map iteration order is randomized by Go, so callers
 // needing a deterministic order should collect and sort.
-func SeqOfMap[K comparable, V any](m map[K]V) Seq[Pair[K, V]] {
-	return FromSeq(func(yield func(Pair[K, V]) bool) {
+func SeqOfMap[K comparable, V any](m map[K]V) Seq[adt.Pair[K, V]] {
+	return FromSeq(func(yield func(adt.Pair[K, V]) bool) {
 		for k, v := range m {
-			if !yield(Pair[K, V]{First: k, Second: v}) {
+			if !yield(adt.PairOf(k, v)) {
 				return
 			}
 		}
@@ -405,8 +405,8 @@ func (s Seq[T]) ToMapBy[K comparable, V any](fn func(T) (K, V), merge func(exist
 
 // ZipSeq pairs elements from two Seqs positionally, stopping at the
 // shorter one, via iter.Pull to consume both in lockstep.
-func ZipSeq[A, B any](sa Seq[A], sb Seq[B]) Seq[Pair[A, B]] {
-	return Seq[Pair[A, B]]{seq: func(yield func(Pair[A, B]) bool) {
+func ZipSeq[A, B any](sa Seq[A], sb Seq[B]) Seq[adt.Pair[A, B]] {
+	return Seq[adt.Pair[A, B]]{seq: func(yield func(adt.Pair[A, B]) bool) {
 		nextA, stopA := iter.Pull(sa.seq)
 		defer stopA()
 		nextB, stopB := iter.Pull(sb.seq)
@@ -417,7 +417,31 @@ func ZipSeq[A, B any](sa Seq[A], sb Seq[B]) Seq[Pair[A, B]] {
 			if !okA || !okB {
 				return
 			}
-			if !yield(Pair[A, B]{First: a, Second: b}) {
+			if !yield(adt.PairOf(a, b)) {
+				return
+			}
+		}
+	}}
+}
+
+// ZipSeq3 triples elements from three Seqs positionally, stopping at the
+// shortest one, via iter.Pull to consume all three in lockstep.
+func ZipSeq3[A, B, C any](sa Seq[A], sb Seq[B], sc Seq[C]) Seq[adt.Triple[A, B, C]] {
+	return Seq[adt.Triple[A, B, C]]{seq: func(yield func(adt.Triple[A, B, C]) bool) {
+		nextA, stopA := iter.Pull(sa.seq)
+		defer stopA()
+		nextB, stopB := iter.Pull(sb.seq)
+		defer stopB()
+		nextC, stopC := iter.Pull(sc.seq)
+		defer stopC()
+		for {
+			a, okA := nextA()
+			b, okB := nextB()
+			c, okC := nextC()
+			if !okA || !okB || !okC {
+				return
+			}
+			if !yield(adt.TripleOf(a, b, c)) {
 				return
 			}
 		}

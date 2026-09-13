@@ -288,8 +288,8 @@ func TestPartition(t *testing.T) {
 
 func TestOfMap(t *testing.T) {
 	m := map[string]int{"a": 1, "b": 2, "c": 3}
-	got := OfMap(m).SortBy(func(p Pair[string, int]) string { return p.First }).Collect()
-	want := []Pair[string, int]{{"a", 1}, {"b", 2}, {"c", 3}}
+	got := OfMap(m).SortBy(func(p adt.Pair[string, int]) string { return p.First() }).Collect()
+	want := []adt.Pair[string, int]{adt.PairOf("a", 1), adt.PairOf("b", 2), adt.PairOf("c", 3)}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("OfMap() = %+v, want %+v", got, want)
 	}
@@ -307,17 +307,38 @@ func TestZip(t *testing.T) {
 		name string
 		a    []string
 		b    []int
-		want []Pair[string, int]
+		want []adt.Pair[string, int]
 	}{
-		{"equal length", []string{"a", "b", "c"}, []int{1, 2, 3}, []Pair[string, int]{{"a", 1}, {"b", 2}, {"c", 3}}},
-		{"a shorter", []string{"a"}, []int{1, 2, 3}, []Pair[string, int]{{"a", 1}}},
-		{"b shorter", []string{"a", "b", "c"}, []int{1}, []Pair[string, int]{{"a", 1}}},
+		{"equal length", []string{"a", "b", "c"}, []int{1, 2, 3}, []adt.Pair[string, int]{adt.PairOf("a", 1), adt.PairOf("b", 2), adt.PairOf("c", 3)}},
+		{"a shorter", []string{"a"}, []int{1, 2, 3}, []adt.Pair[string, int]{adt.PairOf("a", 1)}},
+		{"b shorter", []string{"a", "b", "c"}, []int{1}, []adt.Pair[string, int]{adt.PairOf("a", 1)}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := Zip(Of(tt.a), Of(tt.b)).Collect()
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("Zip() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestZip3(t *testing.T) {
+	tests := []struct {
+		name string
+		a    []string
+		b    []int
+		c    []bool
+		want []adt.Triple[string, int, bool]
+	}{
+		{"equal length", []string{"a", "b"}, []int{1, 2}, []bool{true, false}, []adt.Triple[string, int, bool]{adt.TripleOf("a", 1, true), adt.TripleOf("b", 2, false)}},
+		{"a shorter", []string{"a"}, []int{1, 2}, []bool{true, false}, []adt.Triple[string, int, bool]{adt.TripleOf("a", 1, true)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Zip3(Of(tt.a), Of(tt.b), Of(tt.c)).Collect()
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Zip3() = %+v, want %+v", got, tt.want)
 			}
 		})
 	}
