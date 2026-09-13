@@ -465,4 +465,94 @@ func TestAs_adtAny(t *testing.T) {
 	}
 }
 
+// ── First, Second, Third ──────────────────────────────────────────────────────
+
+type customRecord struct {
+	f string
+	s int
+	t bool
+}
+
+func (c customRecord) First() string { return c.f }
+func (c customRecord) Second() int   { return c.s }
+func (c customRecord) Third() bool   { return c.t }
+
+func TestFirst_Second_Third_Unit(t *testing.T) {
+	p := adt.PairOf(42, "hello")
+	if got := fn.First(p); got != 42 {
+		t.Fatalf("First(pair) = %v, want 42", got)
+	}
+	if got := fn.Second(p); got != "hello" {
+		t.Fatalf("Second(pair) = %v, want hello", got)
+	}
+
+	tr := adt.TripleOf(100, "world", true)
+	if got := fn.First(tr); got != 100 {
+		t.Fatalf("First(triple) = %v, want 100", got)
+	}
+	if got := fn.Second(tr); got != "world" {
+		t.Fatalf("Second(triple) = %v, want world", got)
+	}
+	if got := fn.Third(tr); got != true {
+		t.Fatalf("Third(triple) = %v, want true", got)
+	}
+
+	c := customRecord{f: "key", s: 7, t: false}
+	if got := fn.First(c); got != "key" {
+		t.Fatalf("First(custom) = %v, want key", got)
+	}
+	if got := fn.Second(c); got != 7 {
+		t.Fatalf("Second(custom) = %v, want 7", got)
+	}
+	if got := fn.Third(c); got != false {
+		t.Fatalf("Third(custom) = %v, want false", got)
+	}
+}
+
+func TestFirst_Second_Third_StreamIntegration(t *testing.T) {
+	pairs := []adt.Pair[int, string]{
+		adt.PairOf(1, "a"),
+		adt.PairOf(2, "b"),
+		adt.PairOf(3, "c"),
+	}
+
+	firsts := stream.Of(pairs).Map(fn.First).Collect()
+	if len(firsts) != 3 || firsts[0] != 1 || firsts[1] != 2 || firsts[2] != 3 {
+		t.Fatalf("stream.Map(First) = %v, want [1 2 3]", firsts)
+	}
+
+	seconds := stream.Of(pairs).Map(fn.Second).Collect()
+	if len(seconds) != 3 || seconds[0] != "a" || seconds[1] != "b" || seconds[2] != "c" {
+		t.Fatalf("stream.Map(Second) = %v, want [a b c]", seconds)
+	}
+
+	triples := []adt.Triple[string, int, bool]{
+		adt.TripleOf("x", 10, true),
+		adt.TripleOf("y", 20, false),
+	}
+
+	trFirsts := stream.Of(triples).Map(fn.First).Collect()
+	if len(trFirsts) != 2 || trFirsts[0] != "x" || trFirsts[1] != "y" {
+		t.Fatalf("stream.Map(First) on triples = %v, want [x y]", trFirsts)
+	}
+
+	trSeconds := stream.Of(triples).Map(fn.Second).Collect()
+	if len(trSeconds) != 2 || trSeconds[0] != 10 || trSeconds[1] != 20 {
+		t.Fatalf("stream.Map(Second) on triples = %v, want [10 20]", trSeconds)
+	}
+
+	trThirds := stream.Of(triples).Map(fn.Third).Collect()
+	if len(trThirds) != 2 || trThirds[0] != true || trThirds[1] != false {
+		t.Fatalf("stream.Map(Third) on triples = %v, want [true false]", trThirds)
+	}
+
+	optPair := adt.Some(adt.PairOf("val", 99))
+	if got := optPair.Map(fn.First); !got.IsSome() || got.MustGet() != "val" {
+		t.Fatalf("optPair.Map(First) = %v, want Some(val)", got)
+	}
+	if got := optPair.Map(fn.Second); !got.IsSome() || got.MustGet() != 99 {
+		t.Fatalf("optPair.Map(Second) = %v, want Some(99)", got)
+	}
+}
+
 
