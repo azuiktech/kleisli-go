@@ -11,10 +11,10 @@ import (
 
 func TestStudentRanker(t *testing.T) {
 	students := []examples.Student{
-		{ID: "s1", Name: "Alice", Scores: []float64{95, 92, 94, 96}}, // Avg: 94.25, Var: 1.479
-		{ID: "s2", Name: "Bob", Scores: []float64{100, 60, 100, 60}}, // Avg: 80, low score count
+		{ID: "s1", Name: "Alice", Scores: []float64{95, 92, 94, 96}},   // Avg: 94.25, Var: 1.479
+		{ID: "s2", Name: "Bob", Scores: []float64{100, 60, 100, 60}},   // Avg: 80, low score count
 		{ID: "s3", Name: "Charlie", Scores: []float64{93, 93, 93, 93}}, // Avg: 93, Var: 0 (most consistent)
-		{ID: "s4", Name: "David", Scores: []float64{98, 90, 95, 97}}, // Avg: 95, Var: 3.08
+		{ID: "s4", Name: "David", Scores: []float64{98, 90, 95, 97}},   // Avg: 95, Var: 3.08
 	}
 
 	best := examples.SelectMostConsistentTopStudent(students, 4, 90, 3)

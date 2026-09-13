@@ -41,8 +41,8 @@ func RunSingleWeatherQuery(ctx context.Context, logs *[]string) string {
 		fmt.Println(msg)
 	}
 
-	city := "bangalore"
 	input1 := "what is temperature of bangalore ?"
+	city := parseCity(input1)
 	log(fmt.Sprintf("Caller Input: %s", input1))
 
 	cfg := async.Config{

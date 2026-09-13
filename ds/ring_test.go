@@ -108,7 +108,7 @@ func TestRing_Segments_Wrapped(t *testing.T) {
 	r.Push(4)
 
 	first, second := r.Segments()
-	combined := append(first, second...)
+	combined := slices.Concat(first, second)
 	if !slices.Equal(combined, []int{2, 3, 4}) {
 		t.Fatalf("want [2 3 4], got %v", combined)
 	}

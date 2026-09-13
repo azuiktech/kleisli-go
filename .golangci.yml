@@ -1,0 +1,76 @@
+version: 2
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    # Bugs & Correctness
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - unused
+    - nilerr
+    - durationcheck
+    - copyloopvar
+    - errorlint
+    # Style & Quality
+    - gocritic
+    - misspell
+    - unconvert
+    - prealloc
+    - unparam
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+linters-settings:
+  govet:
+    enable:
+      - atomic
+      - bools
+      - buildtag
+      - copylocks
+      - errorsas
+      - httpresponse
+      - loopclosure
+      - lostcancel
+      - nilfunc
+      - printf
+      - structtag
+      - tests
+      - unreachable
+      - unusedresult
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+    disabled-checks:
+      - hugeParam
+      - unnamedResult
+      - ifElseChain
+  errcheck:
+    check-type-assertions: true
+    check-blank: false
+  errorlint:
+    errorf: true
+    asserts: false
+    comparison: false
+
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 5
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - unparam
+        - staticcheck
+    - path: examples/
+      linters:
+        - unused

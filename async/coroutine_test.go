@@ -1617,7 +1617,7 @@ func TestDurableContext_MaxSteps_ZeroSuspendsOnFirstCall(t *testing.T) {
 	cfg := Config{
 		Context: dCtx,
 		OnCall: []CallHandler{
-			op.Handle(func(x int) adt.Result[int] { return adt.OK(x) }),
+			op.Handle(adt.OK),
 		},
 	}
 	task := Launch[adt.Unit, int](cfg, adt.Void, func(co *Co, _ adt.Unit) adt.Result[int] {
@@ -1941,14 +1941,3 @@ func TestDurableContext_StepIndex_ConcurrentRace(t *testing.T) {
 		t.Fatalf("expected 20 journal entries, got %d", journal.Len())
 	}
 }
-
-
-
-
-
-
-
-
-
-
-

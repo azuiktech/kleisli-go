@@ -554,5 +554,3 @@ func TestFirst_Second_Third_StreamIntegration(t *testing.T) {
 		t.Fatalf("optPair.Map(Second) = %v, want Some(99)", got)
 	}
 }
-
-

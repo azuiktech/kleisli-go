@@ -39,7 +39,6 @@ func (g *GoroutineContext) SetHandlers(handlers []CallHandler) {
 	g.handlers = append(g.handlers, handlers...)
 }
 
-
 func (g *GoroutineContext) Call(op string, s any) *Future[any] {
 	prom, fut := NewPromise[any](g.Context)
 	go func() {

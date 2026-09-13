@@ -4,8 +4,6 @@ import (
 	"github.com/azuiktech/kleisli-go/adt"
 )
 
-
-
 // ============================================================================
 // PROBLEM: Monadic Error Guard & Safe Template Error Access (System Safety)
 // ============================================================================
@@ -35,4 +33,3 @@ func RenderViewState(res adt.Result[string]) ViewState {
 		Data: res.Expect("data present"),
 	}
 }
-

@@ -2,7 +2,6 @@ package fn_test
 
 import (
 	json "encoding/json/v2"
-	"net/url"
 	"reflect"
 	"strings"
 	"testing"
@@ -370,7 +369,7 @@ func TestURLEncoding(t *testing.T) {
 		if valuesRes.IsErr() {
 			t.Fatalf("FromQueryString failed: %v", valuesRes.MustErr())
 		}
-		var values url.Values = valuesRes.MustGet()
+		var values = valuesRes.MustGet()
 		if values.Get("filter") != "active" || values.Get("sort") != "desc" {
 			t.Fatalf("unexpected query values: %v", values)
 		}
@@ -433,4 +432,3 @@ func TestConverter_StreamIntegration(t *testing.T) {
 		}
 	})
 }
-
