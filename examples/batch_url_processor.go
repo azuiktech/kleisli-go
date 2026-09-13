@@ -59,7 +59,6 @@ func ProcessBatchURLs(urls []string, maxConcurrency int) BatchFetchMetrics {
 		Map(func(res FetchResponse) int { return res.ByteCount }).
 		Collect()
 
-
 	sumBytes := 0
 	for _, b := range totalBytes {
 		sumBytes += b

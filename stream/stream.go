@@ -543,7 +543,7 @@ func sortByCached[T any, K cmp.Ordered](items []T, fn func(T) K, cmpFn func(a, b
 // computed property, not a field access); SortBy stays cheaper for
 // trivial key functions since it skips the intermediate key slice.
 func (s Stream[T]) SortByCached[K cmp.Ordered](fn func(T) K) Stream[T] {
-	return Stream[T]{items: sortByCached(s.items, fn, func(a, b K) int { return cmp.Compare(a, b) })}
+	return Stream[T]{items: sortByCached(s.items, fn, cmp.Compare)}
 }
 
 // SortByDescCached is SortByCached in descending order.

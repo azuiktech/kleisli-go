@@ -145,7 +145,6 @@ func (c *Co) Call[S, R any](op Op[S, R], s S) *Future[R] {
 	return futR
 }
 
-
 func dispatchCall(handlers []CallHandler, inv CallInvocation, prom *Promise[any]) bool {
 	for _, h := range handlers {
 		if h.Handle(inv, prom) {
@@ -174,7 +173,6 @@ func PackagedTask[I, O any](cfg Config, fn func(*Co, I) adt.Result[O]) *Task[I, 
 	if hc, ok := coCtx.(HandlerContext); ok && len(cfg.OnCall) > 0 {
 		hc.SetHandlers(cfg.OnCall)
 	}
-
 
 	co := &Co{
 		Context:  fut.Context(),

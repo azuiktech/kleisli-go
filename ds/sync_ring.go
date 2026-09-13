@@ -4,8 +4,8 @@ import (
 	"iter"
 	"slices"
 
-	"github.com/azuiktech/kleisli-go/async"
 	"github.com/azuiktech/kleisli-go/adt"
+	"github.com/azuiktech/kleisli-go/async"
 )
 
 // SyncRingBuffer is a thread-safe RingBuffer backed by async.Sync.

@@ -8,8 +8,10 @@ import (
 	"github.com/azuiktech/kleisli-go/async"
 )
 
+type ctxTestKey string
+
 func TestInCtx_stores_context_and_value(t *testing.T) {
-	ctx := context.WithValue(context.Background(), "k", "v")
+	ctx := context.WithValue(context.Background(), ctxTestKey("k"), "v")
 	c := async.InCtx(ctx, 42)
 	if c.Context != ctx {
 		t.Fatalf("wrong context stored")

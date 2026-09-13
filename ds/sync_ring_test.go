@@ -47,7 +47,7 @@ func TestSyncRing_Segments_Independent(t *testing.T) {
 	r.Push(40)
 
 	first, second := r.Segments()
-	combined := append(first, second...)
+	combined := slices.Concat(first, second)
 	if !slices.Equal(combined, []int{20, 30, 40}) {
 		t.Fatalf("want [20 30 40], got %v", combined)
 	}

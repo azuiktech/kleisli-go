@@ -58,15 +58,15 @@ func TestHandle_concurrent_writes(t *testing.T) {
 }
 
 // Two struct types embedding the same Handle — the pimpl use case.
-type adder   struct{ async.Handle[counter] }
+type adder struct{ async.Handle[counter] }
 type resetter struct{ async.Handle[counter] }
 
-func (a adder)    Add()   { a.Write(func(c *counter) { c.n++ }) }
+func (a adder) Add()      { a.Write(func(c *counter) { c.n++ }) }
 func (r resetter) Reset() { r.Write(func(c *counter) { c.n = 0 }) }
 
 func TestHandle_multiple_types_share_state(t *testing.T) {
 	h := async.NewHandle(counter{})
-	add   := adder{h}
+	add := adder{h}
 	reset := resetter{h}
 
 	add.Add()

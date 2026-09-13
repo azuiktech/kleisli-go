@@ -10,7 +10,7 @@ import (
 // Vec is an encapsulated generic dynamic array data structure.
 // Protected by noCopy marker to prevent value copying and slice sharing.
 type Vec[T any] struct {
-	_ noCopy
+	_    noCopy
 	data []T
 }
 

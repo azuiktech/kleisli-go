@@ -60,7 +60,7 @@ func TestResult_MustGet_panics_on_err(t *testing.T) {
 }
 
 func TestResult_MustErr(t *testing.T) {
-	if got := adt.Err[int](errBoom).MustErr(); got != errBoom {
+	if got := adt.Err[int](errBoom).MustErr(); !errors.Is(got, errBoom) {
 		t.Errorf("MustErr = %v, want %v", got, errBoom)
 	}
 	defer func() {
@@ -68,7 +68,7 @@ func TestResult_MustErr(t *testing.T) {
 			t.Fatal("MustErr on OK should panic")
 		}
 	}()
-	adt.OK(1).MustErr()
+	_ = adt.OK(1).MustErr()
 }
 
 func TestResult_Expect(t *testing.T) {
