@@ -286,9 +286,17 @@ func TestEnumerateSeq(t *testing.T) {
 
 func TestZipSeq(t *testing.T) {
 	got := ZipSeq(FromSeq(slices.Values([]int{1, 2, 3})), FromSeq(slices.Values([]string{"a", "b"}))).Collect()
-	want := []Pair[int, string]{{1, "a"}, {2, "b"}}
+	want := []adt.Pair[int, string]{adt.PairOf(1, "a"), adt.PairOf(2, "b")}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("ZipSeq().Collect() = %+v, want %+v", got, want)
+	}
+}
+
+func TestZipSeq3(t *testing.T) {
+	got := ZipSeq3(FromSeq(slices.Values([]int{1, 2, 3})), FromSeq(slices.Values([]string{"a", "b"})), FromSeq(slices.Values([]bool{true, false, true}))).Collect()
+	want := []adt.Triple[int, string, bool]{adt.TripleOf(1, "a", true), adt.TripleOf(2, "b", false)}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ZipSeq3().Collect() = %+v, want %+v", got, want)
 	}
 }
 
@@ -360,8 +368,8 @@ func TestOption_All(t *testing.T) {
 
 func TestSeqOfMap(t *testing.T) {
 	m := map[string]int{"a": 1, "b": 2}
-	got := SeqOfMap(m).ToStream().SortBy(func(p Pair[string, int]) string { return p.First }).Collect()
-	want := []Pair[string, int]{{"a", 1}, {"b", 2}}
+	got := SeqOfMap(m).ToStream().SortBy(func(p adt.Pair[string, int]) string { return p.First() }).Collect()
+	want := []adt.Pair[string, int]{adt.PairOf("a", 1), adt.PairOf("b", 2)}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("SeqOfMap() sorted = %+v, want %+v", got, want)
 	}

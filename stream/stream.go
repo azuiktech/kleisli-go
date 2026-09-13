@@ -57,15 +57,15 @@ func OfOption[T any](o adt.Option[T]) Stream[T] { return Of(o.ToSlice()) }
 // Empty returns a Stream with no elements.
 func Empty[T any]() Stream[T] { return Stream[T]{} }
 
-// OfMap wraps a map's entries as a Stream of Pair — map iteration order is
+// OfMap wraps a map's entries as a Stream of adt.Pair — map iteration order is
 // randomized by Go itself, so callers needing a deterministic order should
 // follow with SortBy/SortByCached on the key.
-func OfMap[K comparable, V any](m map[K]V) Stream[Pair[K, V]] {
-	pairs := make([]Pair[K, V], 0, len(m))
+func OfMap[K comparable, V any](m map[K]V) Stream[adt.Pair[K, V]] {
+	pairs := make([]adt.Pair[K, V], 0, len(m))
 	for k, v := range m {
-		pairs = append(pairs, Pair[K, V]{First: k, Second: v})
+		pairs = append(pairs, adt.PairOf(k, v))
 	}
-	return Stream[Pair[K, V]]{items: pairs}
+	return Stream[adt.Pair[K, V]]{items: pairs}
 }
 
 // Filter returns a Stream containing only elements for which fn returns true.
@@ -566,21 +566,26 @@ func (s Stream[T]) Partition(fn func(T) bool) (matched, unmatched Stream[T]) {
 	return Stream[T]{items: yes}, Stream[T]{items: no}
 }
 
-// Pair holds the elementwise combination of two Zipped Streams.
-type Pair[A, B any] struct {
-	First  A
-	Second B
-}
-
 // Zip pairs elements from two Streams positionally, stopping at the
 // shorter one — Rust/C++23's zip. Consumes two input Streams, not one.
-func Zip[A, B any](sa Stream[A], sb Stream[B]) Stream[Pair[A, B]] {
+func Zip[A, B any](sa Stream[A], sb Stream[B]) Stream[adt.Pair[A, B]] {
 	n := min(len(sa.items), len(sb.items))
-	out := make([]Pair[A, B], n)
+	out := make([]adt.Pair[A, B], n)
 	for i := range n {
-		out[i] = Pair[A, B]{First: sa.items[i], Second: sb.items[i]}
+		out[i] = adt.PairOf(sa.items[i], sb.items[i])
 	}
-	return Stream[Pair[A, B]]{items: out}
+	return Stream[adt.Pair[A, B]]{items: out}
+}
+
+// Zip3 triples elements from three Streams positionally, stopping at the
+// shortest one. Consumes three input Streams.
+func Zip3[A, B, C any](sa Stream[A], sb Stream[B], sc Stream[C]) Stream[adt.Triple[A, B, C]] {
+	n := min(len(sa.items), min(len(sb.items), len(sc.items)))
+	out := make([]adt.Triple[A, B, C], n)
+	for i := range n {
+		out[i] = adt.TripleOf(sa.items[i], sb.items[i], sc.items[i])
+	}
+	return Stream[adt.Triple[A, B, C]]{items: out}
 }
 
 // Flatten collapses a Stream[[]T] into a Stream[T], concatenating every inner
