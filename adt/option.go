@@ -229,6 +229,14 @@ func (o Option[T]) Tap(fn func(T)) Option[T] {
 	return o
 }
 
+// TapNone calls fn if o is None for side effects and passes the Option through unchanged.
+func (o Option[T]) TapNone(fn func()) Option[T] {
+	if !o.ok {
+		fn()
+	}
+	return o
+}
+
 // Fold collapses the Option into a single value of type U by handling both
 // branches — onSome for presence, onNone for absence.
 func (o Option[T]) Fold[U any](onSome func(T) U, onNone func() U) U {

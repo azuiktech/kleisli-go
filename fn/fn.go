@@ -10,9 +10,7 @@ package fn
 
 import (
 	"cmp"
-	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/azuiktech/kleisli-go/adt"
 )
@@ -68,29 +66,6 @@ func Must[T any](val T, err error) T {
 		panic(err)
 	}
 	return val
-}
-
-// WrapErr returns nil if err is nil; otherwise it wraps err with format and args.
-// If format does not contain %w, ": %w" is automatically appended to preserve the error chain.
-func WrapErr(err error, format string, args ...any) error {
-	if err == nil {
-		return nil
-	}
-	if !strings.Contains(format, "%w") {
-		format += ": %w"
-		args = append(args, err)
-	} else if strings.Count(format, "%")-strings.Count(format, "%%") > len(args) {
-		args = append(args, err)
-	}
-	return fmt.Errorf(format, args...)
-}
-
-// MapErr returns (val, nil) if err is nil; otherwise it wraps err and returns (val, wrappedErr).
-func MapErr[T any](val T, err error, format string, args ...any) (T, error) {
-	if err == nil {
-		return val, nil
-	}
-	return val, WrapErr(err, format, args...)
 }
 
 // Fallback returns val if err is nil; otherwise returns fallback.

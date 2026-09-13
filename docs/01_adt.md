@@ -76,8 +76,7 @@ dtoResult.Fold(renderSuccessJSON, renderErrorJSON)
 | Method | Signature | Description |
 |---|---|---|
 | `MapErr(fn)` | `func (r Result[T]) MapErr(fn func(error) error) Result[T]` | Replaces or maps the error using `fn`. |
-| `MapErrf(format, args...)` | `func (r Result[T]) MapErrf(format string, args ...any) Result[T]` | Wraps error using `fmt.Errorf` (appends `: %w` if missing). |
-| `WrapErr(format, args...)` | `func (r Result[T]) WrapErr(format string, args ...any) Result[T]` | Alias for `MapErrf`. |
+| `MapErrf(format, args...)` | `func (r Result[T]) MapErrf(format string, args ...any) Result[T]` | Formats error using `fmt.Errorf` with existing error as final argument. |
 | `Tap(fn)` | `func (r Result[T]) Tap(fn func(T)) Result[T]` | Runs side effect on success value; returns `r` unchanged. |
 | `TapErr(fn)` | `func (r Result[T]) TapErr(fn func(error)) Result[T]` | Runs side effect on failure error; returns `r` unchanged. |
 | `ToOption()` | `func (r Result[T]) ToOption() Option[T]` | Converts to `Option[T]`: `OK(v)` -> `Some(v)`, `Err` -> `None`. |
@@ -156,6 +155,7 @@ type Option[T any] struct { /* unexported fields */ }
 | `Then[U](fn)` | `func (o Option[T]) Then[U any](fn func(T) (U, bool)) Option[U]` | Alias for `Map0`. |
 | `Filter(fn)` | `func (o Option[T]) Filter(fn func(T) bool) Option[T]` | Keeps value only if `fn(val)` is true, otherwise `None`. |
 | `Tap(fn)` | `func (o Option[T]) Tap(fn func(T)) Option[T]` | Invokes side-effect if present; returns `o` unchanged. |
+| `TapNone(fn)` | `func (o Option[T]) TapNone(fn func()) Option[T]` | Invokes side-effect if absent; returns `o` unchanged. |
 | `Fold[U](some, none)` | `func (o Option[T]) Fold[U any](onSome func(T) U, onNone func() U) U` | Exhaustively unifies both branches into `U`. |
 
 ### Slice & Free Functions (`Options` Namespace)
@@ -284,7 +284,7 @@ type DBConfig struct {
 }
 
 func parsePort(s string) adt.Result[int] {
-    return fn.ParseInt(s).MapErrf("invalid port %q", s)
+    return fn.ParseInt(s).MapErrf("invalid port %q: %w", s)
 }
 
 func validateHost(host string) adt.Result[string] {

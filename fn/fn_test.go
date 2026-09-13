@@ -28,30 +28,6 @@ func TestMust_panics_on_err(t *testing.T) {
 	fn.Must(0, errBoom)
 }
 
-func TestWrapErr_nil(t *testing.T) {
-	if fn.WrapErr(nil, "msg") != nil {
-		t.Fatal("WrapErr(nil) should return nil")
-	}
-}
-
-func TestWrapErr_appends_w(t *testing.T) {
-	err := fn.WrapErr(errBoom, "loading")
-	if !errors.Is(err, errBoom) {
-		t.Fatal("WrapErr should preserve error chain")
-	}
-}
-
-func TestMapErr(t *testing.T) {
-	v, err := fn.MapErr(42, nil, "ctx")
-	if v != 42 || err != nil {
-		t.Fatal("MapErr with nil error should pass through")
-	}
-	_, err2 := fn.MapErr(0, errBoom, "loading")
-	if !errors.Is(err2, errBoom) {
-		t.Fatal("MapErr should wrap error")
-	}
-}
-
 func TestFallback(t *testing.T) {
 	if fn.Fallback(1, nil, 99) != 1 {
 		t.Fatal("Fallback without error should return val")

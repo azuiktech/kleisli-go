@@ -150,9 +150,16 @@ func TestResult_MapErr(t *testing.T) {
 }
 
 func TestResult_MapErrf(t *testing.T) {
-	r := adt.Err[int](errBoom).MapErrf("loading user %s", "abc")
+	r := adt.Err[int](errBoom).MapErrf("loading user %s: %w", "abc")
 	if !errors.Is(r.MustErr(), errBoom) {
 		t.Fatal("MapErrf should wrap errBoom")
+	}
+	if r.MustErr().Error() != "loading user abc: boom" {
+		t.Fatalf("unexpected error message: %s", r.MustErr().Error())
+	}
+	ok := adt.OK(42).MapErrf("loading user %s: %w", "abc")
+	if ok.MustGet() != 42 {
+		t.Fatal("MapErrf on OK should pass through")
 	}
 }
 
@@ -380,6 +387,32 @@ func TestOption_FlatMap(t *testing.T) {
 	}
 	if !adt.None[int]().FlatMap(double).IsNone() {
 		t.Fatal("FlatMap on None should short-circuit")
+	}
+}
+
+func TestOption_Tap(t *testing.T) {
+	called := false
+	got := adt.Some(42).Tap(func(n int) { called = true })
+	if !called || !got.IsSome() || got.MustGet() != 42 {
+		t.Fatal("Tap on Some should call fn and return unchanged Option")
+	}
+	called = false
+	got2 := adt.None[int]().Tap(func(n int) { called = true })
+	if called || !got2.IsNone() {
+		t.Fatal("Tap on None should not call fn")
+	}
+}
+
+func TestOption_TapNone(t *testing.T) {
+	called := false
+	got := adt.None[int]().TapNone(func() { called = true })
+	if !called || !got.IsNone() {
+		t.Fatal("TapNone on None should call fn and return unchanged Option")
+	}
+	called = false
+	got2 := adt.Some(42).TapNone(func() { called = true })
+	if called || !got2.IsSome() || got2.MustGet() != 42 {
+		t.Fatal("TapNone on Some should not call fn")
 	}
 }
 

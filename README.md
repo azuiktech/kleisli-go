@@ -44,7 +44,7 @@ Compose sequential fallible operations without nested error checks, dispatching 
 
 ```go
 adt.From(verifier.Verify(ctx, token)).
-    MapErrf("verify token %q", token).
+    MapErrf("verify token %q: %w", token).
     Then(upsertUser).
     FlatMap(ensurePlan).
     Then(buildDTO).
