@@ -403,3 +403,31 @@ func TestTable_Update_EdgeCases(t *testing.T) {
 		t.Fatal("expected Update(u1, nil) to return false")
 	}
 }
+
+func TestTable_NonUniqueStorage_Len(t *testing.T) {
+	tbl := newSampleTable()
+	u1 := &TestUser{ID: 1, Email: "alice@ex.com", ZipCode: 94016}
+	u2 := &TestUser{ID: 2, Email: "bob@ex.com", ZipCode: 94016}
+	u3 := &TestUser{ID: 3, Email: "charlie@ex.com", ZipCode: 10001}
+
+	tbl.Insert(u1)
+	tbl.Insert(u2)
+	tbl.Insert(u3)
+
+	if testByZipCode.From(tbl).Count(94016) != 2 {
+		t.Fatalf("expected count 2 for 94016, got %d", testByZipCode.From(tbl).Count(94016))
+	}
+	if testByZipCode.From(tbl).Count(10001) != 1 {
+		t.Fatalf("expected count 1 for 10001, got %d", testByZipCode.From(tbl).Count(10001))
+	}
+
+	tbl.Delete(u1)
+	if testByZipCode.From(tbl).Count(94016) != 1 {
+		t.Fatalf("expected count 1 for 94016 after delete, got %d", testByZipCode.From(tbl).Count(94016))
+	}
+
+	tbl.Clear()
+	if testByZipCode.From(tbl).Count(94016) != 0 {
+		t.Fatalf("expected count 0 for 94016 after clear, got %d", testByZipCode.From(tbl).Count(94016))
+	}
+}
