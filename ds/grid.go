@@ -2,7 +2,6 @@ package ds
 
 import (
 	"iter"
-	"slices"
 
 	"github.com/azuiktech/kleisli-go/adt"
 	"github.com/azuiktech/kleisli-go/stream"
@@ -39,12 +38,8 @@ func (g *Grid[R, C, V]) Put(r R, c C, v V) adt.Option[V] {
 	prev := adt.FromMap(g.cells, k)
 
 	if prev.IsNone() {
-		if cols, ok := g.rowCols[r]; !ok || !slices.Contains(cols, c) {
-			g.rowCols[r] = append(g.rowCols[r], c)
-		}
-		if rows, ok := g.colRows[c]; !ok || !slices.Contains(rows, r) {
-			g.colRows[c] = append(g.colRows[c], r)
-		}
+		g.rowCols[r] = append(g.rowCols[r], c)
+		g.colRows[c] = append(g.colRows[c], r)
 	}
 
 	g.cells[k] = v

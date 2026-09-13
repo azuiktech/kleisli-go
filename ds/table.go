@@ -139,6 +139,7 @@ func (s *uniqueStorage[V, K]) all() iter.Seq[*V] {
 type nonUniqueStorage[V any, K comparable] struct {
 	extract func(*V) K
 	data    map[K][]*V
+	total   int
 }
 
 func (s *nonUniqueStorage[V, K]) canInsert(v *V) bool {
@@ -148,12 +149,14 @@ func (s *nonUniqueStorage[V, K]) canInsert(v *V) bool {
 func (s *nonUniqueStorage[V, K]) insert(v *V) {
 	k := s.extract(v)
 	s.data[k] = append(s.data[k], v)
+	s.total++
 }
 
 func (s *nonUniqueStorage[V, K]) delete(v *V) {
 	k := s.extract(v)
 	adt.FromMap(s.data, k).Tap(func(items []*V) {
 		filtered := stream.Of(items).Filter(func(item *V) bool { return item != v }).Collect()
+		s.total -= len(items) - len(filtered)
 		if len(filtered) == 0 {
 			delete(s.data, k)
 		} else {
@@ -171,15 +174,12 @@ func (s *nonUniqueStorage[V, K]) contains(v *V) bool {
 }
 
 func (s *nonUniqueStorage[V, K]) len() int {
-	var total int
-	for _, items := range s.data {
-		total += len(items)
-	}
-	return total
+	return s.total
 }
 
 func (s *nonUniqueStorage[V, K]) clear() {
 	clear(s.data)
+	s.total = 0
 }
 
 func (s *nonUniqueStorage[V, K]) all() iter.Seq[*V] {
