@@ -31,6 +31,38 @@ func Discard[T any](T) adt.Unit {
 	return adt.Void
 }
 
+// ── Structural tuple projections ──────────────────────────────────────────────
+
+// HasFirst represents any value that exposes a First() method returning type A.
+type HasFirst[A any] interface {
+	First() A
+}
+
+// HasSecond represents any value that exposes a Second() method returning type B.
+type HasSecond[B any] interface {
+	Second() B
+}
+
+// HasThird represents any value that exposes a Third() method returning type C.
+type HasThird[C any] interface {
+	Third() C
+}
+
+// First extracts the first component from any value implementing HasFirst (e.g. adt.Pair, adt.Triple).
+func First[A any, T HasFirst[A]](v T) A {
+	return v.First()
+}
+
+// Second extracts the second component from any value implementing HasSecond (e.g. adt.Pair, adt.Triple).
+func Second[B any, T HasSecond[B]](v T) B {
+	return v.Second()
+}
+
+// Third extracts the third component from any value implementing HasThird (e.g. adt.Triple).
+func Third[C any, T HasThird[C]](v T) C {
+	return v.Third()
+}
+
 // Must returns val if err is nil; otherwise it panics with err.
 func Must[T any](val T, err error) T {
 	if err != nil {
