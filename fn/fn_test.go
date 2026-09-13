@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/azuiktech/kleisli-go/adt"
 	"github.com/azuiktech/kleisli-go/fn"
 	"github.com/azuiktech/kleisli-go/stream"
 )
@@ -338,4 +339,130 @@ func TestIn_StreamIntegration(t *testing.T) {
 		}
 	})
 }
+
+// ── True, False, Discard ──────────────────────────────────────────────────────
+
+func TestTrue_and_False(t *testing.T) {
+	if !fn.True(42) || !fn.True("hello") {
+		t.Fatal("True should return true for any input")
+	}
+	if fn.False(42) || fn.False("hello") {
+		t.Fatal("False should return false for any input")
+	}
+
+	first := stream.Of([]int{10, 20, 30}).First(fn.True)
+	if !first.IsSome() || first.MustGet() != 10 {
+		t.Fatalf("First(fn.True) = %v, want Some(10)", first)
+	}
+
+	filtered := stream.Of([]int{1, 2, 3}).Filter(fn.False).Collect()
+	if len(filtered) != 0 {
+		t.Fatalf("Filter(fn.False) = %v, want empty", filtered)
+	}
+}
+
+func TestDiscard(t *testing.T) {
+	if got := fn.Discard("hello"); got != adt.Void {
+		t.Fatalf("Discard = %v, want Void", got)
+	}
+
+	r := adt.OK("entity").Map(fn.Discard)
+	if !r.IsOK() || r.MustGet() != adt.Void {
+		t.Fatalf("OK.Map(fn.Discard) = %v, want OK(Void)", r)
+	}
+
+	o := adt.Some(42).Map(fn.Discard)
+	if !o.IsSome() || o.MustGet() != adt.Void {
+		t.Fatalf("Some.Map(fn.Discard) = %v, want Some(Void)", o)
+	}
+}
+
+// ── IsNonZero ─────────────────────────────────────────────────────────────────
+
+func TestIsNonZero(t *testing.T) {
+	if fn.IsNonZero(0) {
+		t.Fatal("IsNonZero(0) should be false")
+	}
+	if !fn.IsNonZero(42) {
+		t.Fatal("IsNonZero(42) should be true")
+	}
+	if fn.IsNonZero("") {
+		t.Fatal(`IsNonZero("") should be false`)
+	}
+	if !fn.IsNonZero("abc") {
+		t.Fatal(`IsNonZero("abc") should be true`)
+	}
+
+	got := stream.Of([]string{"a", "", "b", "", "c"}).Filter(fn.IsNonZero).Collect()
+	if len(got) != 3 || got[0] != "a" || got[1] != "b" || got[2] != "c" {
+		t.Fatalf("Filter(fn.IsNonZero) = %v, want [a b c]", got)
+	}
+}
+
+// ── IsNil & IsNotNil ──────────────────────────────────────────────────────────
+
+func TestIsNil_and_IsNotNil(t *testing.T) {
+	var nilPtr *int
+	val := 42
+	nonNilPtr := &val
+
+	if !fn.IsNil(nilPtr) {
+		t.Fatal("IsNil(nil) should be true")
+	}
+	if fn.IsNotNil(nilPtr) {
+		t.Fatal("IsNotNil(nil) should be false")
+	}
+
+	if fn.IsNil(nonNilPtr) {
+		t.Fatal("IsNil(nonNil) should be false")
+	}
+	if !fn.IsNotNil(nonNilPtr) {
+		t.Fatal("IsNotNil(nonNil) should be true")
+	}
+
+	filtered := stream.Of([]*int{nonNilPtr, nilPtr, nonNilPtr}).Filter(fn.IsNotNil).Collect()
+	if len(filtered) != 2 {
+		t.Fatalf("Filter(fn.IsNotNil) length = %d, want 2", len(filtered))
+	}
+}
+
+// ── As ────────────────────────────────────────────────────────────────────────
+
+type asCustomType struct{ ID string }
+
+func init() {
+	adt.Register[asCustomType]("fn_test.asCustomType")
+}
+
+func TestAs_rawAny(t *testing.T) {
+	var raw any = "hello"
+	if got := fn.As[string](raw); !got.IsSome() || got.MustGet() != "hello" {
+		t.Fatalf("As[string] = %v, want Some(hello)", got)
+	}
+
+	if got := fn.As[int](raw); !got.IsNone() {
+		t.Fatalf("As[int] on string = %v, want None", got)
+	}
+
+	if got := fn.As[string](nil); !got.IsNone() {
+		t.Fatalf("As[string](nil) = %v, want None", got)
+	}
+}
+
+func TestAs_adtAny(t *testing.T) {
+	boxed := adt.Dyn(asCustomType{ID: "c1"})
+	if got := fn.As[asCustomType](boxed); !got.IsSome() || got.MustGet().ID != "c1" {
+		t.Fatalf("As[asCustomType] = %v, want ID=c1", got)
+	}
+
+	if got := fn.As[string](boxed); !got.IsNone() {
+		t.Fatalf("As[string] on Any = %v, want None", got)
+	}
+
+	emptyAny := adt.Any{}
+	if got := fn.As[asCustomType](emptyAny); !got.IsNone() {
+		t.Fatalf("As on empty Any = %v, want None", got)
+	}
+}
+
 
