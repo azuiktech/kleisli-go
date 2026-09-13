@@ -105,3 +105,10 @@ func (r *RingBuffer[T]) Linearize() []T {
 func (r *RingBuffer[T]) All() iter.Seq[T] {
 	return slices.Values(r.Linearize())
 }
+
+// Clear removes all elements and resets head and size to zero.
+func (r *RingBuffer[T]) Clear() {
+	clear(r.data)
+	r.head = 0
+	r.size = 0
+}

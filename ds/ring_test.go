@@ -142,3 +142,27 @@ func TestRing_All(t *testing.T) {
 		t.Fatalf("want [10 20 30], got %v", got)
 	}
 }
+
+func TestRing_Clear(t *testing.T) {
+	r := ds.Ring[int](3)
+	r.Push(1)
+	r.Push(2)
+	r.Push(3)
+	r.Clear()
+
+	if r.Len() != 0 {
+		t.Fatalf("expected Len 0, got %d", r.Len())
+	}
+	if !r.Empty() {
+		t.Fatal("expected Empty() to be true")
+	}
+	if r.Pop().IsSome() {
+		t.Fatal("expected None on Pop after Clear")
+	}
+
+	// Ensure buffer can still be used after Clear
+	r.Push(42)
+	if got := r.Pop().MustGet(); got != 42 {
+		t.Fatalf("want 42, got %d", got)
+	}
+}

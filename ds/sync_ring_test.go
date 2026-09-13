@@ -97,3 +97,25 @@ func TestSyncRing_Concurrent(t *testing.T) {
 		t.Fatalf("unexpected len %d after concurrent ops", r.Len())
 	}
 }
+
+func TestSyncRing_Clear(t *testing.T) {
+	r := ds.GuardedRing[string](4)
+	r.Push("x")
+	r.Push("y")
+	r.Clear()
+
+	if r.Len() != 0 {
+		t.Fatalf("expected Len 0 after Clear, got %d", r.Len())
+	}
+	if !r.Empty() {
+		t.Fatal("expected Empty() to be true after Clear")
+	}
+	if r.Pop().IsSome() {
+		t.Fatal("expected None on Pop after Clear")
+	}
+
+	r.Push("z")
+	if got := r.Pop().MustGet(); got != "z" {
+		t.Fatalf("want z, got %s", got)
+	}
+}
