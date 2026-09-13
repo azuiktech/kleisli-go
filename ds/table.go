@@ -1,6 +1,7 @@
 package ds
 
 import (
+	"iter"
 	"slices"
 	"sync/atomic"
 
@@ -28,6 +29,7 @@ type internalIndex[V any] interface {
 	contains(v *V) bool
 	len() int
 	clear()
+	all() iter.Seq[*V]
 }
 
 // Unique defines a unique index on V by key K.
@@ -123,6 +125,16 @@ func (s *uniqueStorage[V, K]) clear() {
 	clear(s.data)
 }
 
+func (s *uniqueStorage[V, K]) all() iter.Seq[*V] {
+	return func(yield func(*V) bool) {
+		for _, v := range s.data {
+			if !yield(v) {
+				return
+			}
+		}
+	}
+}
+
 // nonUniqueStorage stores items indexed 1-to-many by key K.
 type nonUniqueStorage[V any, K comparable] struct {
 	extract func(*V) K
@@ -168,6 +180,18 @@ func (s *nonUniqueStorage[V, K]) len() int {
 
 func (s *nonUniqueStorage[V, K]) clear() {
 	clear(s.data)
+}
+
+func (s *nonUniqueStorage[V, K]) all() iter.Seq[*V] {
+	return func(yield func(*V) bool) {
+		for _, items := range s.data {
+			for _, v := range items {
+				if !yield(v) {
+					return
+				}
+			}
+		}
+	}
 }
 
 // UniqueView provides type-safe query operations for a unique index.
@@ -287,6 +311,46 @@ func (t *Table[V]) Len() int {
 func (t *Table[V]) Clear() {
 	t.main.clear()
 	stream.Of(t.secondary).ForEach(func(idx internalIndex[V]) { idx.clear() })
+}
+
+// All returns an iterator over all records stored in the main table.
+func (t *Table[V]) All() iter.Seq[*V] {
+	return t.main.all()
+}
+
+// Update safely mutates an existing record in place, synchronizing the main table
+// and all secondary indexes. If the mutation violates any unique index constraint,
+// the mutation is rolled back, existing indexes are restored, and false is returned.
+func (t *Table[V]) Update(v *V, mutate func(*V)) bool {
+	if v == nil || mutate == nil || !t.main.contains(v) {
+		return false
+	}
+	t.main.delete(v)
+	stream.Of(t.secondary).ForEach(func(idx internalIndex[V]) {
+		idx.delete(v)
+	})
+
+	oldVal := *v
+	mutate(v)
+
+	valid := t.main.canInsert(v) && stream.Of(t.secondary).AllOf(func(idx internalIndex[V]) bool {
+		return idx.canInsert(v)
+	})
+
+	if !valid {
+		*v = oldVal
+		t.main.insert(v)
+		stream.Of(t.secondary).ForEach(func(idx internalIndex[V]) {
+			idx.insert(v)
+		})
+		return false
+	}
+
+	t.main.insert(v)
+	stream.Of(t.secondary).ForEach(func(idx internalIndex[V]) {
+		idx.insert(v)
+	})
+	return true
 }
 
 // From binds the unique index to the given table, returning a type-safe UniqueView.

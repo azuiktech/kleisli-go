@@ -284,3 +284,122 @@ func TestTable_PrimaryKeyMainStorage(t *testing.T) {
 		t.Fatalf("expected updated email, got %v", got)
 	}
 }
+
+func TestTable_All(t *testing.T) {
+	tbl := newSampleTable()
+	u1 := &TestUser{ID: 1, Email: "a@ex.com", ZipCode: 100}
+	u2 := &TestUser{ID: 2, Email: "b@ex.com", ZipCode: 200}
+	u3 := &TestUser{ID: 3, Email: "c@ex.com", ZipCode: 300}
+
+	tbl.Insert(u1)
+	tbl.Insert(u2)
+	tbl.Insert(u3)
+
+	var all []*TestUser
+	for u := range tbl.All() {
+		all = append(all, u)
+	}
+	if len(all) != 3 {
+		t.Fatalf("expected 3 items from All(), got %d", len(all))
+	}
+
+	// Verify early break from iterator
+	count := 0
+	for range tbl.All() {
+		count++
+		break
+	}
+	if count != 1 {
+		t.Fatalf("expected early break to stop after 1 iteration, got %d", count)
+	}
+}
+
+func TestTable_Update_Success(t *testing.T) {
+	tbl := newSampleTable()
+	u1 := &TestUser{ID: 1, Email: "alice@ex.com", ZipCode: 94016}
+	tbl.Insert(u1)
+
+	// Update secondary non-unique index and unique index
+	ok := tbl.Update(u1, func(u *TestUser) {
+		u.Email = "alice.new@ex.com"
+		u.ZipCode = 90210
+	})
+	if !ok {
+		t.Fatal("expected Update to succeed")
+	}
+
+	// Old email should not exist
+	if testByEmail.From(tbl).Find("alice@ex.com").IsSome() {
+		t.Fatal("old email should no longer be indexed")
+	}
+	// New email should exist
+	if !testByEmail.From(tbl).Find("alice.new@ex.com").IsSome() {
+		t.Fatal("new email should be indexed")
+	}
+	// Old zip code should have count 0
+	if testByZipCode.From(tbl).Count(94016) != 0 {
+		t.Fatal("old zipcode should have 0 items")
+	}
+	// New zip code should have count 1
+	if testByZipCode.From(tbl).Count(90210) != 1 {
+		t.Fatal("new zipcode should have 1 item")
+	}
+}
+
+func TestTable_Update_ConstraintViolation_Rollback(t *testing.T) {
+	tbl := newSampleTable()
+	u1 := &TestUser{ID: 1, Email: "alice@ex.com", ZipCode: 100}
+	u2 := &TestUser{ID: 2, Email: "bob@ex.com", ZipCode: 200}
+	tbl.Insert(u1)
+	tbl.Insert(u2)
+
+	// Attempt to change u1's email to u2's email (unique constraint violation)
+	ok := tbl.Update(u1, func(u *TestUser) {
+		u.Email = "bob@ex.com"
+		u.ZipCode = 999
+	})
+	if ok {
+		t.Fatal("expected Update to fail due to email collision")
+	}
+
+	// u1 should have rolled back to original state
+	if u1.Email != "alice@ex.com" {
+		t.Fatalf("expected email rolled back to alice@ex.com, got %s", u1.Email)
+	}
+	if u1.ZipCode != 100 {
+		t.Fatalf("expected zip rolled back to 100, got %d", u1.ZipCode)
+	}
+
+	// Indexes must still be intact
+	if !testByEmail.From(tbl).Find("alice@ex.com").IsSome() {
+		t.Fatal("alice@ex.com must still be indexed")
+	}
+	if !testByEmail.From(tbl).Find("bob@ex.com").IsSome() {
+		t.Fatal("bob@ex.com must still be indexed")
+	}
+	if testByZipCode.From(tbl).Count(100) != 1 {
+		t.Fatal("zipcode 100 must still have 1 item")
+	}
+	if testByZipCode.From(tbl).Count(999) != 0 {
+		t.Fatal("zipcode 999 must have 0 items")
+	}
+}
+
+func TestTable_Update_EdgeCases(t *testing.T) {
+	tbl := newSampleTable()
+	u1 := &TestUser{ID: 1, Email: "alice@ex.com", ZipCode: 100}
+
+	// Not in table
+	if tbl.Update(u1, func(u *TestUser) { u.ZipCode = 200 }) {
+		t.Fatal("expected Update on uninserted record to return false")
+	}
+
+	tbl.Insert(u1)
+	// Nil checks
+	if tbl.Update(nil, func(u *TestUser) {}) {
+		t.Fatal("expected Update(nil, ...) to return false")
+	}
+	if tbl.Update(u1, nil) {
+		t.Fatal("expected Update(u1, nil) to return false")
+	}
+}

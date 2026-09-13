@@ -81,3 +81,8 @@ func (s *SyncRingBuffer[T]) All() iter.Seq[T] {
 	snap := s.Linearize()
 	return slices.Values(snap)
 }
+
+// Clear removes all elements under the write lock.
+func (s *SyncRingBuffer[T]) Clear() {
+	s.Write(func(r *RingBuffer[T]) { r.Clear() })
+}
