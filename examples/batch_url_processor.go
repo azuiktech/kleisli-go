@@ -46,7 +46,7 @@ func ProcessBatchURLs(urls []string, maxConcurrency int) BatchFetchMetrics {
 	// Step 1: Run fetch workers in parallel with bounded concurrency and contextual error wrapping
 	results := stream.Of(urls).
 		Parallel(maxConcurrency, func(u string) adt.Result[FetchResponse] {
-			return fetcher(u).MapErrf("fetch URL %q", u)
+			return fetcher(u).MapErrf("fetch URL %q: %w", u)
 		}).
 		Collect()
 
