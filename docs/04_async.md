@@ -4,7 +4,7 @@ The `async` package provides concurrency primitives for Go:
 1. **`Pipe[T]`**: CSP channel pipelines for bounded worker pools, rate limiting, buffering, windowing, and fan-out/fan-in.
 2. **`Future[T]` & `Promise[T]`**: Single-assignment producer/consumer asynchronous handles with context cause propagation.
 3. **Coroutines & Task Engine**: Strongly-typed effect suspension, two-way communication (`co.Emit`, `co.Call`), and replayable step journals.
-4. **`Sync[T]` & `Handle[D]`**: Thread-safe concurrent state encapsulation and the pointer-to-implementation (pimpl) pattern.
+4. **`Sync[T]`**: Thread-safe concurrent state encapsulation.
 5. **`Ctx[T]`**: Context-value bundling.
 
 ```go
@@ -170,7 +170,7 @@ output := task.Await().MustGet()
 
 ---
 
-## 4. Concurrent State (`Sync[T]` & `Handle[D]`)
+## 4. Concurrent State (`Sync[T]`)
 
 Encapsulates mutable state behind `sync.RWMutex` without exposing raw locks.
 
@@ -185,25 +185,8 @@ type Sync[C any] struct { /* unexported fields */ }
 | `Of[C](inner)` | `func Of[C any](inner C) Sync[C]` | Wraps `inner` in a `Sync[C]`. |
 | `s.Read(fn)` | `func (s *Sync[C]) Read(f func(C))` | Acquires RLock; passes shallow snapshot of `C` to `f`. |
 | `s.Write(fn)` | `func (s *Sync[C]) Write(f func(*C))` | Acquires Lock; passes pointer to `C` for mutation. |
-| `s.Map[R](fn)` | `func (s *Sync[C]) Map[R any](f func(C) R) R` | Acquires RLock; transforms snapshot into `R`. |
+| `s.Fetch[R](fn)` | `func (s *Sync[C]) Fetch[R any](f func(C) R) R` | Acquires RLock; extracts computed value from snapshot into `R`. |
 | `s.Mutate[R](fn)` | `func (s *Sync[C]) Mutate[R any](f func(*C) R) R` | Acquires Lock; mutates `C` and returns `R`. |
-
-### `Handle[D]` (Pimpl Pattern)
-
-`Handle[D]` wraps `*Sync[D]` in a shallow value type. All copies share the exact same underlying synchronized state. Multiple structs can embed `Handle[D]` to present different API facades without interface overhead.
-
-```go
-type orgState struct {
-    orgs map[string]string
-}
-
-type InMemOrgs struct { async.Handle[orgState] }
-type InMemAdmin struct { async.Handle[orgState] }
-
-h := async.NewHandle(orgState{orgs: make(map[string]string)})
-orgService := InMemOrgs{h}
-adminService := InMemAdmin{h} // Shares identical synchronized memory
-```
 
 ---
 

@@ -27,7 +27,7 @@ Comprehensive, function-by-function chapterwise API catalogs and real-world reci
 | [Chapter 1: adt](docs/01_adt.md) | **Algebraic Data Types** | `Result[T]`, `Option[T]`, `Unit`/`Void`, `Lazy[T]`, `Any` dynamic box, JSON serialization |
 | [Chapter 2: fn](docs/02_fn.md) | **Functional Utilities** | Value helpers, bound predicates, point-free composition, rotated algorithms, parsers, string transforms |
 | [Chapter 3: stream](docs/03_stream.md) | **Data Pipelines** | Eager `Stream[T]`, lazy `Seq[T]`, numeric aggregations (`NumberStream`), async bridging |
-| [Chapter 4: async](docs/04_async.md) | **Concurrency & Coroutines** | CSP `Pipe[T]`, `Future`/`Promise`, `Task`/`Co` coroutine engine, `Sync[T]`, `Handle[D]`, `Ctx[T]` |
+| [Chapter 4: async](docs/04_async.md) | **Concurrency & Coroutines** | CSP `Pipe[T]`, `Future`/`Promise`, `Task`/`Co` coroutine engine, `Sync[T]`, `Ctx[T]` |
 | [Chapter 5: ds](docs/05_ds.md) | **Data Structures** | Circular `RingBuffer`, thread-safe `SyncRingBuffer`, multi-indexed `Table[V]`, 2D `Grid[R, C, V]`, `Set[T]`, `Map[K, V]`, `Vec[T]`, `AdjList`, `IncidenceList` |
 | [Chapter 6: examples](docs/06_examples.md) | **Practical Recipes** | 10 production recipes (CORS/Auth, Batch URLs, Weather Coroutine, Graph Audit, etc.) |
 
@@ -205,20 +205,21 @@ task := async.Launch(cfg, "bangalore", func(co *async.Co, city string) adt.Resul
 output := task.Await().MustGet()
 ```
 
-#### Synchronized State & Pimpl Handles
-Multiple structs share identical thread-safe state without interface declarations:
+#### Synchronized State (`Sync[T]`)
+Encapsulate mutable state with a read/write lock supporting void and value-returning operations:
 
 ```go
 type storeState struct {
     items map[string]Item
 }
 
-type CatalogStore struct{ async.Handle[storeState] }
-type AdminStore   struct{ async.Handle[storeState] }
+store := async.Of(storeState{items: make(map[string]Item)})
 
-h := async.NewHandle(storeState{items: make(map[string]Item)})
-catalog := CatalogStore{h}
-admin   := AdminStore{h} // Both operate on the same synchronized memory
+// Value-returning read under RLock:
+count := store.Fetch(func(s storeState) int { return len(s.items) })
+
+// Void or mutating write under Lock:
+store.Write(func(s *storeState) { s.items["a"] = item })
 ```
 
 ---
