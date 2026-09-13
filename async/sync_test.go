@@ -35,9 +35,9 @@ func TestSync_ConcurrentWrites(t *testing.T) {
 	}
 }
 
-func TestMap_ReturnsValue(t *testing.T) {
+func TestFetch_ReturnsValue(t *testing.T) {
 	s := async.Of(42)
-	got := s.Map(func(n int) int { return n })
+	got := s.Fetch(func(n int) int { return n })
 	if got != 42 {
 		t.Fatalf("want 42, got %d", got)
 	}
@@ -49,7 +49,7 @@ func TestMutate_ReturnsValue(t *testing.T) {
 	if prev != 0 {
 		t.Fatalf("want previous value 0, got %d", prev)
 	}
-	if got := s.Map(func(n int) int { return n }); got != 99 {
+	if got := s.Fetch(func(n int) int { return n }); got != 99 {
 		t.Fatalf("want 99 after mutate, got %d", got)
 	}
 }

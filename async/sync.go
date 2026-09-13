@@ -41,11 +41,11 @@ func (s *Sync[C]) Mutate[R any](f func(*C) R) R {
 	return f(&s.inner)
 }
 
-// Map acquires the read lock, calls f with a snapshot of the value, and
+// Fetch acquires the read lock, calls f with a snapshot of the value, and
 // returns its result. The snapshot is a shallow copy — see Read for the
 // same caveat on pointer/map/slice fields. Multiple readers may proceed
 // concurrently.
-func (s *Sync[C]) Map[R any](f func(C) R) R {
+func (s *Sync[C]) Fetch[R any](f func(C) R) R {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return f(s.inner)
