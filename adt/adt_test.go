@@ -559,6 +559,35 @@ func TestMemoize(t *testing.T) {
 	}
 }
 
+func TestMemoize_Result(t *testing.T) {
+	calls := 0
+	f := adt.Memoize(func(k string) adt.Result[int] {
+		calls++
+		if k == "err" {
+			return adt.Err[int](errors.New("fail"))
+		}
+		return adt.OK(len(k))
+	})
+
+	r1 := f("hello")
+	r2 := f("hello")
+	if !r1.IsOK() || r1.MustGet() != 5 || calls != 1 {
+		t.Fatalf("want OK(5), calls=1; got %v, calls=%d", r1, calls)
+	}
+	if r2.MustGet() != 5 || calls != 1 {
+		t.Fatalf("want cached OK(5), calls=1; got %v, calls=%d", r2, calls)
+	}
+
+	re1 := f("err")
+	re2 := f("err")
+	if !re1.IsErr() || calls != 2 {
+		t.Fatalf("want Err, calls=2; got %v, calls=%d", re1, calls)
+	}
+	if !re2.IsErr() || calls != 2 {
+		t.Fatalf("want cached Err, calls=2; got %v, calls=%d", re2, calls)
+	}
+}
+
 // ── Dynamic / Any ─────────────────────────────────────────────────────────────
 
 type dynTestVal struct{ N int }

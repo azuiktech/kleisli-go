@@ -174,10 +174,10 @@ func AuditGraphTopology(startNode string, nodes map[string]GraphNodeSpec) adt.Re
 ## 7. Thread-Safe Memoized Cache (`memoized_cache.go`)
 
 **Domain:** Algorithms / Caching / Performance  
-**Pattern:** Per-key caching of pure and fallible calculations using `adt.Memoize` and `adt.MemoizeErr`.
+**Pattern:** Per-key caching of pure and fallible calculations using `adt.Memoize`.
 
 - **Pure memoization**: Caches recursive Fibonacci evaluations so each distinct integer `n` is calculated at most once.
-- **Fallible memoization**: Caches both factor slices and errors for prime factorization with `adt.MemoizeErr`.
+- **Fallible memoization**: Caches both factor slices and errors for prime factorization by memoizing an `adt.Result[[]int]` return.
 
 ```go
 func MemoizedFibonacci() func(int) uint64 {

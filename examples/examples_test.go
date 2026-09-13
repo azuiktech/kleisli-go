@@ -135,10 +135,11 @@ func TestMemoizedCache(t *testing.T) {
 	}
 
 	factorizer := examples.MemoizedFactorizer()
-	factors, err := factorizer(12)
-	if err != nil {
-		t.Fatalf("factorizer failed: %v", err)
+	res := factorizer(12)
+	if !res.IsOK() {
+		t.Fatalf("factorizer failed: %v", res.MustErr())
 	}
+	factors := res.MustGet()
 	if len(factors) != 3 { // 2, 2, 3
 		t.Errorf("factors count = %d, want 3", len(factors))
 	}

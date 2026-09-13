@@ -29,10 +29,10 @@ func MemoizedFibonacci() func(int) uint64 {
 }
 
 // MemoizedFactorizer creates a thread-safe memoized fallible prime factorizer.
-func MemoizedFactorizer() func(int) ([]int, error) {
-	return adt.MemoizeErr(func(n int) ([]int, error) {
+func MemoizedFactorizer() func(int) adt.Result[[]int] {
+	return adt.Memoize(func(n int) adt.Result[[]int] {
 		if n <= 1 {
-			return nil, errors.New("cannot factorize numbers <= 1")
+			return adt.Err[[]int](errors.New("cannot factorize numbers <= 1"))
 		}
 
 		var factors []int
@@ -50,6 +50,6 @@ func MemoizedFactorizer() func(int) ([]int, error) {
 			factors = append(factors, temp)
 		}
 
-		return factors, nil
+		return adt.OK(factors)
 	})
 }
