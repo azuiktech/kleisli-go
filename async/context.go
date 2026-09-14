@@ -142,17 +142,47 @@ func (d *DurableContext) allocStep() (any, bool, bool) {
 	return val, replayed, suspended
 }
 
+// settleReplay resolves prom from journal history or rejects it with ErrSuspended
+// when this step's budget is exhausted. Reports whether it settled prom.
+func settleReplay(prom *Promise[any], val any, replayed, suspended bool) bool {
+	switch {
+	case replayed:
+		prom.Resolve(val)
+	case suspended:
+		prom.Reject(ErrSuspended)
+	default:
+		return false
+	}
+	return true
+}
+
+// settleFromResult journals a successful step and resolves prom, or rejects prom on failure.
+func (d *DurableContext) settleFromResult(prom *Promise[any], res adt.Result[any]) {
+	if res.IsErr() {
+		prom.Reject(res.MustErr())
+		return
+	}
+	resVal := res.MustGet()
+	d.journal.Append(resVal)
+	prom.Resolve(resVal)
+}
+
+// execCall dispatches inv to handlers and settles prom from the outcome.
+func (d *DurableContext) execCall(prom *Promise[any], handlers []CallHandler, inv CallInvocation) {
+	defer settlePanic(prom)
+	promExec, futExec := NewPromise[any](d.Context)
+	if !dispatchCall(handlers, inv, promExec) {
+		prom.Reject(fmt.Errorf("no handler registered for operation: %s", inv.OpName))
+		return
+	}
+	d.settleFromResult(prom, futExec.Await())
+}
+
 // Call executes an asymmetric operation or replays it from journal history.
 func (d *DurableContext) Call(op string, s any) *Future[any] {
 	prom, fut := NewPromise[any](d.Context)
 	val, replayed, suspended := d.allocStep()
-
-	if replayed {
-		prom.Resolve(val)
-		return fut
-	}
-	if suspended {
-		prom.Reject(ErrSuspended)
+	if settleReplay(prom, val, replayed, suspended) {
 		return fut
 	}
 
@@ -160,23 +190,7 @@ func (d *DurableContext) Call(op string, s any) *Future[any] {
 	handlers := append([]CallHandler(nil), d.handlers...)
 	d.mu.Unlock()
 
-	inv := CallInvocation{OpName: op, S: s}
-	go func() {
-		defer settlePanic(prom)
-		promExec, futExec := NewPromise[any](d.Context)
-		if !dispatchCall(handlers, inv, promExec) {
-			prom.Reject(fmt.Errorf("no handler registered for operation: %s", op))
-			return
-		}
-		res := futExec.Await()
-		if res.IsErr() {
-			prom.Reject(res.MustErr())
-			return
-		}
-		resVal := res.MustGet()
-		d.journal.Append(resVal)
-		prom.Resolve(resVal)
-	}()
+	go d.execCall(prom, handlers, CallInvocation{OpName: op, S: s})
 	return fut
 }
 
@@ -184,26 +198,13 @@ func (d *DurableContext) Call(op string, s any) *Future[any] {
 func (d *DurableContext) Async(fn func(ctx context.Context) adt.Result[any]) *Future[any] {
 	prom, fut := NewPromise[any](d.Context)
 	val, replayed, suspended := d.allocStep()
-
-	if replayed {
-		prom.Resolve(val)
-		return fut
-	}
-	if suspended {
-		prom.Reject(ErrSuspended)
+	if settleReplay(prom, val, replayed, suspended) {
 		return fut
 	}
 
 	go func() {
 		defer settlePanic(prom)
-		res := fn(fut.Context())
-		if res.IsErr() {
-			prom.Reject(res.MustErr())
-			return
-		}
-		resVal := res.MustGet()
-		d.journal.Append(resVal)
-		prom.Resolve(resVal)
+		d.settleFromResult(prom, fn(fut.Context()))
 	}()
 	return fut
 }

@@ -11,6 +11,7 @@ type TestUser struct {
 	ID      int64
 	Email   string
 	ZipCode uint32
+	Note    string // not part of any index
 }
 
 var (
@@ -401,6 +402,61 @@ func TestTable_Update_EdgeCases(t *testing.T) {
 	}
 	if tbl.Update(u1, nil) {
 		t.Fatal("expected Update(u1, nil) to return false")
+	}
+}
+
+func TestTable_Update_NonIndexedField(t *testing.T) {
+	tbl := newSampleTable()
+	u1 := &TestUser{ID: 1, Email: "alice@ex.com", ZipCode: 94016, Note: "original"}
+	tbl.Insert(u1)
+
+	ok := tbl.Update(u1, func(u *TestUser) {
+		u.Note = "updated"
+	})
+	if !ok {
+		t.Fatal("expected Update mutating a non-indexed field to succeed")
+	}
+	if u1.Note != "updated" {
+		t.Fatalf("expected Note to be updated, got %s", u1.Note)
+	}
+
+	// Index memberships must be unchanged
+	if !testByID.From(tbl).Exists(1) {
+		t.Fatal("ID 1 should still be indexed after non-indexed field update")
+	}
+	if !testByEmail.From(tbl).Exists("alice@ex.com") {
+		t.Fatal("email should still be indexed after non-indexed field update")
+	}
+	if testByZipCode.From(tbl).Count(94016) != 1 {
+		t.Fatal("zipcode 94016 should still have 1 item after non-indexed field update")
+	}
+	if tbl.Len() != 1 {
+		t.Fatalf("expected Len 1, got %d", tbl.Len())
+	}
+}
+
+func TestTable_NonUniqueView_Find_AbsentKey(t *testing.T) {
+	tbl := newSampleTable()
+	tbl.Insert(&TestUser{ID: 1, Email: "alice@ex.com", ZipCode: 94016})
+
+	matches := testByZipCode.From(tbl).Find(99999)
+	if matches != nil {
+		t.Fatalf("Find on absent key want nil, got %v", matches)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("Find on absent key want 0 matches, got %d", len(matches))
+	}
+}
+
+func TestTable_All_Empty(t *testing.T) {
+	tbl := newSampleTable()
+
+	count := 0
+	for range tbl.All() {
+		count++
+	}
+	if count != 0 {
+		t.Fatalf("expected 0 iterations for All() on freshly constructed empty table, got %d", count)
 	}
 }
 

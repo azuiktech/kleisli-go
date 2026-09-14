@@ -443,3 +443,77 @@ func TestSeq_Tap_IsLazyAndPassesThrough(t *testing.T) {
 		t.Errorf("Tap side-effect saw %v, want [1 2 3]", tapped)
 	}
 }
+
+func TestSeq_ToMapBy_CollisionMergePolicies(t *testing.T) {
+	type pair struct {
+		Key string
+		Val int
+	}
+	items := SeqOf(pair{"a", 1}, pair{"b", 2}, pair{"a", 3})
+	keyVal := func(p pair) (string, int) { return p.Key, p.Val }
+
+	if got := items.ToMapBy(keyVal, KeepFirst); got["a"] != 1 {
+		t.Errorf("ToMapBy(KeepFirst)[a] = %d, want 1", got["a"])
+	}
+	if got := items.ToMapBy(keyVal, KeepLast); got["a"] != 3 {
+		t.Errorf("ToMapBy(KeepLast)[a] = %d, want 3", got["a"])
+	}
+	sum := func(existing, incoming int) int { return existing + incoming }
+	if got := items.ToMapBy(keyVal, sum); got["a"] != 4 {
+		t.Errorf("ToMapBy(sum)[a] = %d, want 4", got["a"])
+	}
+}
+
+func TestSeq_MapWhile_StopsAtFirstNone(t *testing.T) {
+	got := SeqOf(1, 2, 3, -1, 4, 5).
+		MapWhile(func(n int) adt.Option[int] {
+			if n < 0 {
+				return adt.None[int]()
+			}
+			return adt.Some(n * 10)
+		}).
+		Collect()
+	want := []int{10, 20, 30}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("MapWhile() = %v, want %v (elements after the stop must be excluded)", got, want)
+	}
+}
+
+func TestSeq_ScanWhile_StopsAtFirstNone(t *testing.T) {
+	got := SeqOf(1, 2, 3, -1, 4).
+		ScanWhile(0, func(acc, n int) (int, adt.Option[int]) {
+			if n < 0 {
+				return acc, adt.None[int]()
+			}
+			acc += n
+			return acc, adt.Some(acc)
+		}).
+		Collect()
+	want := []int{1, 3, 6}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ScanWhile() = %v, want %v (elements after the stop must be excluded)", got, want)
+	}
+}
+
+func TestSeq_MinByCompare(t *testing.T) {
+	less := func(a, b int) int { return a - b }
+
+	if got := SeqOf(5, 3, 8, 1, 9).MinByCompare(less); got.IsNone() || got.MustGet() != 1 {
+		t.Errorf("MinByCompare() = %v, want Some(1)", got)
+	}
+	if got := SeqOf[int]().MinByCompare(less); got.IsSome() {
+		t.Errorf("MinByCompare() on empty Seq = %v, want None", got)
+	}
+}
+
+func TestSeq_MinByCompare_TiesKeepFirst(t *testing.T) {
+	type item struct {
+		Name string
+		N    int
+	}
+	less := func(a, b item) int { return a.N - b.N }
+	got := SeqOf(item{"a", 1}, item{"b", 1}, item{"c", 2}).MinByCompare(less)
+	if got.IsNone() || got.MustGet().Name != "a" {
+		t.Errorf("MinByCompare() tie = %v, want Some(a) (first element must win)", got)
+	}
+}

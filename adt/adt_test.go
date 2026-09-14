@@ -1,6 +1,7 @@
 package adt_test
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -97,6 +98,54 @@ func TestResult_OrElse(t *testing.T) {
 	}
 }
 
+func TestResult_OrElseGet(t *testing.T) {
+	if got := adt.OK(1).OrElseGet(func(error) int { return 99 }); got != 1 {
+		t.Fatalf("OrElseGet on OK: want 1, got %d", got)
+	}
+	called := false
+	got := adt.Err[int](errBoom).OrElseGet(func(e error) int {
+		called = true
+		if !errors.Is(e, errBoom) {
+			t.Errorf("OrElseGet fn received %v, want errBoom", e)
+		}
+		return 99
+	})
+	if !called || got != 99 {
+		t.Fatalf("OrElseGet on Err: want fn called and 99, got called=%v got=%d", called, got)
+	}
+}
+
+func TestResult_Or(t *testing.T) {
+	if got := adt.OK(1).Or(adt.OK(99)).MustGet(); got != 1 {
+		t.Fatalf("Or on OK: want 1, got %d", got)
+	}
+	if got := adt.Err[int](errBoom).Or(adt.OK(99)).MustGet(); got != 99 {
+		t.Fatalf("Or on Err: want fallback 99, got %d", got)
+	}
+}
+
+func TestResult_FromNonZero(t *testing.T) {
+	if got := adt.FromNonZero(42, nil).MustGet(); got != 42 {
+		t.Fatalf("FromNonZero(42, nil): want 42, got %d", got)
+	}
+	if !adt.FromNonZero(0, errBoom).IsErr() {
+		t.Fatal("FromNonZero(0, err) should be Err")
+	}
+	// error takes precedence regardless of val
+	if !adt.FromNonZero(5, errBoom).IsErr() {
+		t.Fatal("FromNonZero(non-zero, err) should still be Err")
+	}
+}
+
+func TestResult_FromNonZero_panics_on_zero_and_nil_err(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("FromNonZero(zero value, nil error) should panic")
+		}
+	}()
+	adt.FromNonZero(0, nil)
+}
+
 // ── Result combinators ────────────────────────────────────────────────────────
 
 func TestResult_Map(t *testing.T) {
@@ -107,6 +156,17 @@ func TestResult_Map(t *testing.T) {
 	e := adt.Err[int](errBoom).Map(func(n int) string { return "x" })
 	if !e.IsErr() {
 		t.Fatal("Map on Err should propagate error")
+	}
+}
+
+func TestResult_Map0(t *testing.T) {
+	r := adt.OK(3).Map0(func() string { return "x" })
+	if r.MustGet() != "x" {
+		t.Fatal("Map0 should ignore current value and use fn's result")
+	}
+	e := adt.Err[int](errBoom).Map0(func() string { return "x" })
+	if !e.IsErr() {
+		t.Fatal("Map0 on Err should propagate error")
 	}
 }
 
@@ -357,6 +417,16 @@ func TestOption_FromSlice(t *testing.T) {
 	}
 }
 
+func TestFromMap(t *testing.T) {
+	m := map[string]int{"a": 1, "b": 2}
+	if got := adt.FromMap(m, "a").MustGet(); got != 1 {
+		t.Fatalf("FromMap present: want 1, got %d", got)
+	}
+	if !adt.FromMap(m, "z").IsNone() {
+		t.Fatal("FromMap absent key should be None")
+	}
+}
+
 func TestOption_FromResult(t *testing.T) {
 	o := adt.FromResult(adt.OK(7))
 	if !o.IsSome() || o.MustGet() != 7 {
@@ -380,6 +450,16 @@ func TestOption_Map(t *testing.T) {
 	}
 }
 
+func TestOption_Map0(t *testing.T) {
+	o := adt.Some(3).Map0(func() string { return "x" })
+	if o.MustGet() != "x" {
+		t.Fatal("Map0 should ignore current value and use fn's result")
+	}
+	if !adt.None[int]().Map0(func() string { return "x" }).IsNone() {
+		t.Fatal("Map0 on None should propagate absence")
+	}
+}
+
 func TestOption_FlatMap(t *testing.T) {
 	double := func(n int) adt.Option[int] { return adt.Some(n * 2) }
 	if got := adt.Some(4).FlatMap(double).MustGet(); got != 8 {
@@ -387,6 +467,82 @@ func TestOption_FlatMap(t *testing.T) {
 	}
 	if !adt.None[int]().FlatMap(double).IsNone() {
 		t.Fatal("FlatMap on None should short-circuit")
+	}
+}
+
+func TestOption_Then(t *testing.T) {
+	half := func(n int) (int, bool) {
+		if n%2 == 0 {
+			return n / 2, true
+		}
+		return 0, false
+	}
+	if got := adt.Some(10).Then(half).MustGet(); got != 5 {
+		t.Fatalf("Then on Some with ok=true: want 5, got %d", got)
+	}
+	if !adt.Some(7).Then(half).IsNone() {
+		t.Fatal("Then on Some with ok=false should be None")
+	}
+	if !adt.None[int]().Then(half).IsNone() {
+		t.Fatal("Then on None should short-circuit")
+	}
+}
+
+func TestOption_OrElseGet(t *testing.T) {
+	if got := adt.Some(1).OrElseGet(func() int { return 99 }); got != 1 {
+		t.Fatalf("OrElseGet on Some: want 1, got %d", got)
+	}
+	called := false
+	got := adt.None[int]().OrElseGet(func() int { called = true; return 99 })
+	if !called || got != 99 {
+		t.Fatalf("OrElseGet on None: want fn called and 99, got called=%v got=%d", called, got)
+	}
+}
+
+func TestOption_Or(t *testing.T) {
+	if got := adt.Some(1).Or(adt.Some(99)).MustGet(); got != 1 {
+		t.Fatalf("Or on Some: want 1, got %d", got)
+	}
+	if got := adt.None[int]().Or(adt.Some(99)).MustGet(); got != 99 {
+		t.Fatalf("Or on None: want fallback 99, got %d", got)
+	}
+}
+
+func TestOption_ToPtr(t *testing.T) {
+	p := adt.Some(42).ToPtr()
+	if p == nil || *p != 42 {
+		t.Fatal("ToPtr on Some should return a non-nil pointer to the value")
+	}
+	if adt.None[int]().ToPtr() != nil {
+		t.Fatal("ToPtr on None should return nil")
+	}
+}
+
+func TestOption_ToSlice(t *testing.T) {
+	s := adt.Some(7).ToSlice()
+	if len(s) != 1 || s[0] != 7 {
+		t.Fatalf("ToSlice on Some: want [7], got %v", s)
+	}
+	if s2 := adt.None[int]().ToSlice(); len(s2) != 0 {
+		t.Fatalf("ToSlice on None: want empty slice, got %v", s2)
+	}
+}
+
+func TestOption_All(t *testing.T) {
+	var got []int
+	for v := range adt.Some(5).All() {
+		got = append(got, v)
+	}
+	if len(got) != 1 || got[0] != 5 {
+		t.Fatalf("All on Some should yield exactly one value, got %v", got)
+	}
+
+	var got2 []int
+	for v := range adt.None[int]().All() {
+		got2 = append(got2, v)
+	}
+	if len(got2) != 0 {
+		t.Fatalf("All on None should yield zero values, got %v", got2)
 	}
 }
 
@@ -567,6 +723,29 @@ func TestLazy_ToResult(t *testing.T) {
 	}
 }
 
+func TestLazy_ToResultGet(t *testing.T) {
+	v := 7
+	l := adt.Defer(func() *int { return &v })
+	called := false
+	got := l.ToResultGet(func() error { called = true; return errBoom })
+	if called {
+		t.Fatal("Lazy.ToResultGet should not call fn when the value is present")
+	}
+	if *got.MustGet() != 7 {
+		t.Fatalf("Lazy.ToResultGet: want 7, got %d", *got.MustGet())
+	}
+
+	l2 := adt.Defer(func() *int { return nil })
+	called2 := false
+	got2 := l2.ToResultGet(func() error { called2 = true; return errOther })
+	if !called2 {
+		t.Fatal("Lazy.ToResultGet should call fn when the value is nil/absent")
+	}
+	if !got2.IsErr() || !errors.Is(got2.MustErr(), errOther) {
+		t.Fatal("Lazy.ToResultGet with nil should be Err from fn")
+	}
+}
+
 func TestDeferErr(t *testing.T) {
 	l := adt.DeferErr(func() (int, error) { return 42, nil })
 	if got := l.Get().MustGet(); got != 42 {
@@ -659,6 +838,111 @@ func TestAs_wrong_type_is_none(t *testing.T) {
 	got := adt.As[int](a)
 	if !got.IsNone() {
 		t.Fatal("As with wrong type should be None")
+	}
+}
+
+// ── Result JSON ────────────────────────────────────────────────────────────────
+
+func TestResult_JSON_roundtrip_OK(t *testing.T) {
+	r := adt.OK(42)
+	data, err := json.Marshal(r)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if string(data) != `{"ok":42}` {
+		t.Fatalf(`wire format: got %s, want {"ok":42}`, data)
+	}
+	var r2 adt.Result[int]
+	if err := json.Unmarshal(data, &r2); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if !r2.IsOK() || r2.MustGet() != 42 {
+		t.Fatalf("roundtrip: want OK(42), got %v", r2)
+	}
+}
+
+func TestResult_JSON_roundtrip_Err(t *testing.T) {
+	r := adt.Err[int](errBoom)
+	data, err := json.Marshal(r)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if string(data) != `{"err":"boom"}` {
+		t.Fatalf(`wire format: got %s, want {"err":"boom"}`, data)
+	}
+	var r2 adt.Result[int]
+	if err := json.Unmarshal(data, &r2); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if !r2.IsErr() || r2.MustErr().Error() != "boom" {
+		t.Fatalf("roundtrip: want Err with message 'boom', got %v", r2)
+	}
+	// Documented caveat: only the message text survives the round-trip, not
+	// the original error's identity or wrapping chain.
+	if errors.Is(r2.MustErr(), errBoom) {
+		t.Fatal("unmarshaled error should not be errors.Is the original errBoom — identity is not preserved")
+	}
+}
+
+func TestResult_UnmarshalJSON_missing_keys(t *testing.T) {
+	var r adt.Result[int]
+	if err := json.Unmarshal([]byte(`{}`), &r); err == nil {
+		t.Fatal(`Unmarshal of {} (neither "ok" nor "err") should error`)
+	}
+}
+
+// ── Option JSON ────────────────────────────────────────────────────────────────
+
+func TestOption_JSON_roundtrip_Some(t *testing.T) {
+	o := adt.Some(7)
+	data, err := json.Marshal(o)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if string(data) != "7" {
+		t.Fatalf("wire format: got %s, want 7", data)
+	}
+	var o2 adt.Option[int]
+	if err := json.Unmarshal(data, &o2); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if !o2.IsSome() || o2.MustGet() != 7 {
+		t.Fatalf("roundtrip: want Some(7), got %v", o2)
+	}
+}
+
+func TestOption_JSON_roundtrip_None(t *testing.T) {
+	o := adt.None[int]()
+	data, err := json.Marshal(o)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if string(data) != "null" {
+		t.Fatalf("wire format: got %s, want null", data)
+	}
+	var o2 adt.Option[int]
+	if err := json.Unmarshal(data, &o2); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if !o2.IsNone() {
+		t.Fatal("roundtrip: want None")
+	}
+}
+
+// nilableMap decodes any JSON object to a nil map, letting the test reach
+// UnmarshalJSON's documented edge case: non-null JSON that still produces a
+// nil value.
+type nilableMap map[string]int
+
+func (m *nilableMap) UnmarshalJSON(data []byte) error {
+	*m = nil
+	return nil
+}
+
+func TestOption_UnmarshalJSON_nonNull_nil_value_errors(t *testing.T) {
+	var o adt.Option[nilableMap]
+	if err := json.Unmarshal([]byte(`{"a":1}`), &o); err == nil {
+		t.Fatal("Option.UnmarshalJSON should error when non-null JSON decodes to a nil value")
 	}
 }
 

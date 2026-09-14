@@ -294,6 +294,23 @@ func TestVec_AccessAndQueries(t *testing.T) {
 	}
 }
 
+func TestVec_BoundaryIndices(t *testing.T) {
+	v := ds.NewVec(10, 20, 30)
+	lastIdx := v.Len() - 1
+
+	if opt := v.Get(lastIdx); !opt.IsSome() || opt.MustGet() != 30 {
+		t.Fatalf("Get(len-1) want Some(30), got %v", opt)
+	}
+
+	del := v.DeleteAt(v.Len() - 1)
+	if !del.IsSome() || del.MustGet() != 30 {
+		t.Fatalf("DeleteAt(len-1) want Some(30), got %v", del)
+	}
+	if !slices.Equal(v.ToSlice(), []int{10, 20}) {
+		t.Fatalf("unexpected after DeleteAt(len-1): %v", v.ToSlice())
+	}
+}
+
 func TestVec_Clone(t *testing.T) {
 	v1 := ds.NewVec(1, 2, 3)
 	v2 := v1.Clone()

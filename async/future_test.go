@@ -608,6 +608,37 @@ func TestZip3_Success(t *testing.T) {
 	}
 }
 
+func TestZip2_ExternalContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	p1, _ := NewPromise[int](context.Background())
+	p2, _ := NewPromise[string](context.Background())
+
+	fut := Zip2[int, string](ctx, p1, p2)
+	cause := errors.New("caller context cancelled")
+
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		cancel(cause)
+	}()
+
+	res := fut.Await()
+	if res.IsOK() {
+		t.Fatalf("expected error, got: %v", res.MustGet())
+	}
+	if !errors.Is(res.MustErr(), cause) {
+		t.Fatalf("got %v, want %v", res.MustErr(), cause)
+	}
+
+	r1 := p1.Future().Await()
+	if !errors.Is(r1.MustErr(), cause) {
+		t.Fatalf("p1 cancelled err got %v, want %v", r1.MustErr(), cause)
+	}
+	r2 := p2.Future().Await()
+	if !errors.Is(r2.MustErr(), cause) {
+		t.Fatalf("p2 cancelled err got %v, want %v", r2.MustErr(), cause)
+	}
+}
+
 func TestZip3_FailFast(t *testing.T) {
 	p1, _ := NewPromise[int](context.Background())
 	p2, _ := NewPromise[string](context.Background())
@@ -632,5 +663,41 @@ func TestZip3_FailFast(t *testing.T) {
 	}
 	if p3.Future().Await().IsOK() {
 		t.Fatalf("expected p3 to be cancelled")
+	}
+}
+
+func TestZip3_ExternalContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	p1, _ := NewPromise[int](context.Background())
+	p2, _ := NewPromise[string](context.Background())
+	p3, _ := NewPromise[bool](context.Background())
+
+	fut := Zip3[int, string, bool](ctx, p1, p2, p3)
+	cause := errors.New("caller context cancelled")
+
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		cancel(cause)
+	}()
+
+	res := fut.Await()
+	if res.IsOK() {
+		t.Fatalf("expected error, got: %v", res.MustGet())
+	}
+	if !errors.Is(res.MustErr(), cause) {
+		t.Fatalf("got %v, want %v", res.MustErr(), cause)
+	}
+
+	r1 := p1.Future().Await()
+	if !errors.Is(r1.MustErr(), cause) {
+		t.Fatalf("p1 cancelled err got %v, want %v", r1.MustErr(), cause)
+	}
+	r2 := p2.Future().Await()
+	if !errors.Is(r2.MustErr(), cause) {
+		t.Fatalf("p2 cancelled err got %v, want %v", r2.MustErr(), cause)
+	}
+	r3 := p3.Future().Await()
+	if !errors.Is(r3.MustErr(), cause) {
+		t.Fatalf("p3 cancelled err got %v, want %v", r3.MustErr(), cause)
 	}
 }

@@ -110,6 +110,27 @@ func TestToJSON(t *testing.T) {
 	})
 }
 
+type sampleWithSlice struct {
+	Tags []string `json:"tags"`
+}
+
+func TestToJSONOpts(t *testing.T) {
+	v := sampleWithSlice{Tags: nil}
+
+	res := fn.ToJSONOpts(v, json.FormatNilSliceAsNull(true))
+	if res.IsErr() {
+		t.Fatalf("expected OK, got err: %v", res.MustErr())
+	}
+	if str := string(res.MustGet()); !strings.Contains(str, `"tags":null`) {
+		t.Fatalf("expected nil slice to marshal as null with FormatNilSliceAsNull option, got: %s", str)
+	}
+
+	defaultRes := fn.ToJSON(v)
+	if str := string(defaultRes.MustGet()); !strings.Contains(str, `"tags":[]`) {
+		t.Fatalf("expected default ToJSON (no options) to marshal nil slice as [], got: %s", str)
+	}
+}
+
 func TestToJSONIndent(t *testing.T) {
 	u := sampleUser{ID: 2, Name: "Dave"}
 	res := fn.ToJSONIndent(u, "", "  ")

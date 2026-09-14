@@ -65,5 +65,5 @@ Before committing, pushing, or creating any Pull Request:
   - Use `adt.Option[T]` and `adt.Result[T]` for error handling and fallible operations.
   - Eliminate nested `if err != nil` and `.Unwrap()` error checking; compose with `.Map`, `.FlatMap`, `.Recover`, `.Fold`.
   - Represent void outcomes with `adt.Void` / `adt.Unit`.
-  - Avoid raw `for` loops where `stream.Stream` or `stream.Seq` pipelines can be used.
+  - Avoid raw `for` loops where `stream.Stream` or `stream.Seq` pipelines can be used. This targets loops that hand-roll an *algorithm* a named combinator already provides — filter, map, find, reduce, group, transform-into-a-new-collection. A `for range` that merely executes a side effect per element (spawn a goroutine, cancel a future, call a handler) is a `ForEach`-shaped loop, not a reimplemented algorithm, and is not a violation on its own.
 - **Minimal Footprint**: Keep diffs minimal, focused, and free of speculative abstractions or style-only refactoring.

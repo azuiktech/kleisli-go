@@ -131,7 +131,7 @@ var (
 
 // TaskGroup coordinates concurrent execution of tasks with cancellation context.
 type TaskGroup struct {
-	sync.WaitGroup
+	wg     sync.WaitGroup
 	ctx    context.Context
 	cancel context.CancelCauseFunc
 }
@@ -155,7 +155,7 @@ func (tg *TaskGroup) Context() context.Context { return tg.ctx }
 // and all remaining pending sources are cancelled immediately.
 func (tg *TaskGroup) Run[T any](sources []Receiver[T], policy func(idx int, res adt.Result[T]) bool) {
 	for i, s := range sources {
-		tg.Go(func() {
+		tg.wg.Go(func() {
 			res := s.Future().AwaitCtx(tg.ctx)
 			if policy(i, res) {
 				cause := res.Fold(
@@ -167,7 +167,7 @@ func (tg *TaskGroup) Run[T any](sources []Receiver[T], policy func(idx int, res 
 			}
 		})
 	}
-	tg.Wait()
+	tg.wg.Wait()
 }
 
 // AllOf returns a Future that resolves when all sources resolve successfully,
@@ -293,7 +293,7 @@ func Zip2[A, B any](ctx context.Context, sa Receiver[A], sb Receiver[B]) *Future
 	zipBranch(tg, sb, func(v B) { b = v }, fail)
 
 	go func() {
-		tg.Wait()
+		tg.wg.Wait()
 		once.Do(func() { prom.Resolve(adt.PairOf(a, b)) })
 	}()
 	return fut
@@ -321,14 +321,14 @@ func Zip3[A, B, C any](ctx context.Context, sa Receiver[A], sb Receiver[B], sc R
 	zipBranch(tg, sc, func(v C) { c = v }, fail)
 
 	go func() {
-		tg.Wait()
+		tg.wg.Wait()
 		once.Do(func() { prom.Resolve(adt.TripleOf(a, b, c)) })
 	}()
 	return fut
 }
 
 func zipBranch[T any](tg *TaskGroup, s Receiver[T], onVal func(T), onErr func(error)) {
-	tg.Go(func() {
+	tg.wg.Go(func() {
 		s.Future().AwaitCtx(tg.ctx).
 			Tap(onVal).
 			TapErr(func(err error) {
