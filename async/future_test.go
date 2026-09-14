@@ -224,7 +224,7 @@ func TestFuture_ConcurrentResolveAndCancel(t *testing.T) {
 }
 
 func TestAllOf_Empty(t *testing.T) {
-	fut := AllOf[int]()
+	fut := AllOf[int](context.Background())
 	res := fut.Await()
 	if res.IsErr() {
 		t.Fatalf("expected OK, got error: %v", res.MustErr())
@@ -251,7 +251,7 @@ func TestAllOf_MixedPrimitivesSuccess(t *testing.T) {
 		p2.Resolve(20)
 	}()
 
-	combined := AllOf[int](fut1, p2, task)
+	combined := AllOf[int](context.Background(), fut1, p2, task)
 	res := combined.Await()
 	if res.IsErr() {
 		t.Fatalf("expected OK, got: %v", res.MustErr())
@@ -281,7 +281,7 @@ func TestAllOf_FailFastAndCancel(t *testing.T) {
 		fut1.Cancel(errFail)
 	}()
 
-	combined := AllOf[int](p1, taskSlow)
+	combined := AllOf[int](context.Background(), p1, taskSlow)
 	start := time.Now()
 	res := combined.Await()
 	elapsed := time.Since(start)
@@ -306,7 +306,7 @@ func TestAllOf_ExternalCancelPropagation(t *testing.T) {
 	p1, _ := NewPromise[int](context.Background())
 	p2, _ := NewPromise[int](context.Background())
 
-	combined := AllOf[int](p1, p2)
+	combined := AllOf[int](context.Background(), p1, p2)
 	customErr := errors.New("caller cancelled")
 
 	go func() {
@@ -328,8 +328,35 @@ func TestAllOf_ExternalCancelPropagation(t *testing.T) {
 	}
 }
 
+func TestAllOf_ContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	p1, _ := NewPromise[int](context.Background())
+	p2, _ := NewPromise[int](context.Background())
+
+	combined := AllOf[int](ctx, p1, p2)
+	cause := errors.New("parent context timed out")
+
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		cancel(cause)
+	}()
+
+	res := combined.Await()
+	if res.IsOK() {
+		t.Fatalf("expected error, got: %v", res.MustGet())
+	}
+	if !errors.Is(res.MustErr(), cause) {
+		t.Fatalf("got %v, want %v", res.MustErr(), cause)
+	}
+
+	r1 := p1.Future().Await()
+	if !errors.Is(r1.MustErr(), cause) {
+		t.Fatalf("p1 cancelled err got %v, want %v", r1.MustErr(), cause)
+	}
+}
+
 func TestAllSettled_Empty(t *testing.T) {
-	fut := AllSettled[int]()
+	fut := AllSettled[int](context.Background())
 	res := fut.Await()
 	if res.IsErr() {
 		t.Fatalf("expected OK, got: %v", res.MustErr())
@@ -357,7 +384,7 @@ func TestAllSettled_MixedResults(t *testing.T) {
 		p2.Reject(err2)
 	}()
 
-	combined := AllSettled[int](p1, p2, task)
+	combined := AllSettled[int](context.Background(), p1, p2, task)
 	res := combined.Await()
 	if res.IsErr() {
 		t.Fatalf("expected AllSettled to succeed with results, got: %v", res.MustErr())
@@ -379,7 +406,7 @@ func TestAllSettled_MixedResults(t *testing.T) {
 }
 
 func TestRace_Empty(t *testing.T) {
-	fut := Race[int]()
+	fut := Race[int](context.Background())
 	res := fut.Await()
 	if res.IsOK() {
 		t.Fatalf("expected error for empty Race, got %v", res.MustGet())
@@ -402,7 +429,7 @@ func TestRace_FirstSuccessWins(t *testing.T) {
 		p2.Resolve("loser")
 	}()
 
-	res := Race[string](p1, p2).Await()
+	res := Race[string](context.Background(), p1, p2).Await()
 	if res.IsErr() {
 		t.Fatalf("expected OK, got: %v", res.MustErr())
 	}
@@ -430,7 +457,7 @@ func TestRace_FirstFailureWins(t *testing.T) {
 		p2.Resolve(42)
 	}()
 
-	res := Race[int](p1, p2).Await()
+	res := Race[int](context.Background(), p1, p2).Await()
 	if res.IsOK() {
 		t.Fatalf("expected Err, got: %v", res.MustGet())
 	}
@@ -445,7 +472,7 @@ func TestRace_FirstFailureWins(t *testing.T) {
 }
 
 func TestAnyOf_Empty(t *testing.T) {
-	fut := AnyOf[int]()
+	fut := AnyOf[int](context.Background())
 	res := fut.Await()
 	if res.IsOK() {
 		t.Fatalf("expected error for empty AnyOf, got %v", res.MustGet())
@@ -473,7 +500,7 @@ func TestAnyOf_FirstSuccessAfterFailure(t *testing.T) {
 		p3.Resolve("too late")
 	}()
 
-	res := AnyOf[string](p1, p2, p3).Await()
+	res := AnyOf[string](context.Background(), p1, p2, p3).Await()
 	if res.IsErr() {
 		t.Fatalf("expected OK, got: %v", res.MustErr())
 	}
@@ -498,7 +525,7 @@ func TestAnyOf_AllFailed(t *testing.T) {
 		p2.Reject(e2)
 	}()
 
-	res := AnyOf[int](p1, p2).Await()
+	res := AnyOf[int](context.Background(), p1, p2).Await()
 	if res.IsOK() {
 		t.Fatalf("expected error when all fail, got: %v", res.MustGet())
 	}
@@ -523,7 +550,7 @@ func TestZip2_Success(t *testing.T) {
 		p2.Resolve("hello")
 	}()
 
-	fut := Zip2[int, string](p1, p2)
+	fut := Zip2[int, string](context.Background(), p1, p2)
 	res := fut.Await()
 	if res.IsErr() {
 		t.Fatalf("expected OK, got: %v", res.MustErr())
@@ -544,7 +571,7 @@ func TestZip2_FailFast(t *testing.T) {
 		p1.Reject(errBoom)
 	}()
 
-	fut := Zip2[int, string](p1, p2)
+	fut := Zip2[int, string](context.Background(), p1, p2)
 	res := fut.Await()
 	if res.IsOK() {
 		t.Fatalf("expected Err, got: %v", res.MustGet())
@@ -570,7 +597,7 @@ func TestZip3_Success(t *testing.T) {
 		p3.Resolve(true)
 	}()
 
-	fut := Zip3[int, string, bool](p1, p2, p3)
+	fut := Zip3[int, string, bool](context.Background(), p1, p2, p3)
 	res := fut.Await()
 	if res.IsErr() {
 		t.Fatalf("expected OK, got: %v", res.MustErr())
@@ -591,7 +618,7 @@ func TestZip3_FailFast(t *testing.T) {
 		p2.Reject(errBoom)
 	}()
 
-	fut := Zip3[int, string, bool](p1, p2, p3)
+	fut := Zip3[int, string, bool](context.Background(), p1, p2, p3)
 	res := fut.Await()
 	if res.IsOK() {
 		t.Fatalf("expected Err, got: %v", res.MustGet())

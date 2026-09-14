@@ -136,16 +136,16 @@ type TaskGroup struct {
 	cancel context.CancelCauseFunc
 }
 
+// NewTaskGroup creates a new TaskGroup with a background context.
+func NewTaskGroup() *TaskGroup {
+	return TaskGroupWithContext(context.Background())
+}
+
 // TaskGroupWithContext creates a new TaskGroup derived from ctx.
 func TaskGroupWithContext(ctx context.Context) *TaskGroup {
 	c := adt.Opt(ctx).OrElse(context.Background())
 	gctx, cancel := context.WithCancelCause(c)
 	return &TaskGroup{ctx: gctx, cancel: cancel}
-}
-
-// TaskWithContext creates a new TaskGroup derived from ctx.
-func TaskWithContext(ctx context.Context) *TaskGroup {
-	return TaskGroupWithContext(ctx)
 }
 
 // Context returns the group's cancellation context.
@@ -173,12 +173,12 @@ func (tg *TaskGroup) Run[T any](sources []Receiver[T], policy func(idx int, res 
 // AllOf returns a Future that resolves when all sources resolve successfully,
 // or rejects immediately with the error of the first source that fails.
 // When one source fails, all other pending sources are cancelled.
-func AllOf[T any](sources ...Receiver[T]) *Future[[]T] {
+func AllOf[T any](ctx context.Context, sources ...Receiver[T]) *Future[[]T] {
 	if len(sources) == 0 {
-		return resolvedFuture([]T{})
+		return resolvedFuture(ctx, []T{})
 	}
-	prom, fut := NewPromise[[]T](context.Background())
-	tg := TaskGroupWithContext(fut.Context())
+	tg := TaskGroupWithContext(ctx)
+	prom, fut := NewPromise[[]T](tg.Context())
 	watchCancel(fut, func(c error) { cancelAll(sources, c) })
 
 	out := make([]T, len(sources))
@@ -201,12 +201,12 @@ func AllOf[T any](sources ...Receiver[T]) *Future[[]T] {
 // AllSettled returns a Future that resolves when all sources have settled
 // (either resolved or rejected). The returned slice preserves input order
 // and contains the Result[T] of each source.
-func AllSettled[T any](sources ...Receiver[T]) *Future[[]adt.Result[T]] {
+func AllSettled[T any](ctx context.Context, sources ...Receiver[T]) *Future[[]adt.Result[T]] {
 	if len(sources) == 0 {
-		return resolvedFuture([]adt.Result[T]{})
+		return resolvedFuture(ctx, []adt.Result[T]{})
 	}
-	prom, fut := NewPromise[[]adt.Result[T]](context.Background())
-	tg := TaskGroupWithContext(fut.Context())
+	tg := TaskGroupWithContext(ctx)
+	prom, fut := NewPromise[[]adt.Result[T]](tg.Context())
 	watchCancel(fut, func(c error) { cancelAll(sources, c) })
 
 	out := make([]adt.Result[T], len(sources))
@@ -223,12 +223,12 @@ func AllSettled[T any](sources ...Receiver[T]) *Future[[]adt.Result[T]] {
 // Race returns a Future that settles with the result (OK or Err) of the first
 // source that completes. All other pending sources are cancelled.
 // If sources is empty, the returned Future is rejected with ErrEmptySources.
-func Race[T any](sources ...Receiver[T]) *Future[T] {
+func Race[T any](ctx context.Context, sources ...Receiver[T]) *Future[T] {
 	if len(sources) == 0 {
-		return rejectedFuture[T](ErrEmptySources)
+		return rejectedFuture[T](ctx, ErrEmptySources)
 	}
-	prom, fut := NewPromise[T](context.Background())
-	tg := TaskGroupWithContext(fut.Context())
+	tg := TaskGroupWithContext(ctx)
+	prom, fut := NewPromise[T](tg.Context())
 	watchCancel(fut, func(c error) { cancelAll(sources, c) })
 
 	var once sync.Once
@@ -245,12 +245,12 @@ func Race[T any](sources ...Receiver[T]) *Future[T] {
 // succeeds. If a source fails, other sources continue executing.
 // The returned Future is rejected with ErrAllFailed only if all sources fail.
 // If sources is empty, the returned Future is rejected with ErrEmptySources.
-func AnyOf[T any](sources ...Receiver[T]) *Future[T] {
+func AnyOf[T any](ctx context.Context, sources ...Receiver[T]) *Future[T] {
 	if len(sources) == 0 {
-		return rejectedFuture[T](ErrEmptySources)
+		return rejectedFuture[T](ctx, ErrEmptySources)
 	}
-	prom, fut := NewPromise[T](context.Background())
-	tg := TaskGroupWithContext(fut.Context())
+	tg := TaskGroupWithContext(ctx)
+	prom, fut := NewPromise[T](tg.Context())
 	watchCancel(fut, func(c error) { cancelAll(sources, c) })
 
 	var once sync.Once
@@ -276,33 +276,21 @@ func AnyOf[T any](sources ...Receiver[T]) *Future[T] {
 
 // Zip2 combines two heterogeneous sources into a Future of adt.Pair.
 // If either source fails, the combined future fails fast and cancels the other.
-func Zip2[A, B any](sa Receiver[A], sb Receiver[B]) *Future[adt.Pair[A, B]] {
-	fa, fb := sa.Future(), sb.Future()
-	prom, fut := NewPromise[adt.Pair[A, B]](context.Background())
-	tg := TaskGroupWithContext(fut.Context())
-	watchCancel(fut, func(c error) { fa.Cancel(c); fb.Cancel(c) })
+func Zip2[A, B any](ctx context.Context, sa Receiver[A], sb Receiver[B]) *Future[adt.Pair[A, B]] {
+	tg := TaskGroupWithContext(ctx)
+	prom, fut := NewPromise[adt.Pair[A, B]](tg.Context())
+	watchCancel(fut, func(c error) { sa.Future().Cancel(c); sb.Future().Cancel(c) })
 
 	var a A
 	var b B
 	var once sync.Once
-	tg.Go(func() {
-		fa.AwaitCtx(tg.ctx).
-			Tap(func(v A) { a = v }).
-			TapErr(func(err error) {
-				fb.Cancel(err)
-				once.Do(func() { prom.Reject(err) })
-				tg.cancel(err)
-			})
-	})
-	tg.Go(func() {
-		fb.AwaitCtx(tg.ctx).
-			Tap(func(v B) { b = v }).
-			TapErr(func(err error) {
-				fa.Cancel(err)
-				once.Do(func() { prom.Reject(err) })
-				tg.cancel(err)
-			})
-	})
+	fail := func(err error) {
+		once.Do(func() { prom.Reject(err) })
+		sa.Future().Cancel(err)
+		sb.Future().Cancel(err)
+	}
+	zipBranch(tg, sa, func(v A) { a = v }, fail)
+	zipBranch(tg, sb, func(v B) { b = v }, fail)
 
 	go func() {
 		tg.Wait()
@@ -313,52 +301,41 @@ func Zip2[A, B any](sa Receiver[A], sb Receiver[B]) *Future[adt.Pair[A, B]] {
 
 // Zip3 combines three heterogeneous sources into a Future of adt.Triple.
 // If any source fails, the combined future fails fast and cancels the others.
-func Zip3[A, B, C any](sa Receiver[A], sb Receiver[B], sc Receiver[C]) *Future[adt.Triple[A, B, C]] {
-	fa, fb, fc := sa.Future(), sb.Future(), sc.Future()
-	prom, fut := NewPromise[adt.Triple[A, B, C]](context.Background())
-	tg := TaskGroupWithContext(fut.Context())
-	watchCancel(fut, func(c error) { fa.Cancel(c); fb.Cancel(c); fc.Cancel(c) })
+func Zip3[A, B, C any](ctx context.Context, sa Receiver[A], sb Receiver[B], sc Receiver[C]) *Future[adt.Triple[A, B, C]] {
+	tg := TaskGroupWithContext(ctx)
+	prom, fut := NewPromise[adt.Triple[A, B, C]](tg.Context())
+	watchCancel(fut, func(c error) { sa.Future().Cancel(c); sb.Future().Cancel(c); sc.Future().Cancel(c) })
 
 	var a A
 	var b B
 	var c C
 	var once sync.Once
-	tg.Go(func() {
-		fa.AwaitCtx(tg.ctx).
-			Tap(func(v A) { a = v }).
-			TapErr(func(err error) {
-				fb.Cancel(err)
-				fc.Cancel(err)
-				once.Do(func() { prom.Reject(err) })
-				tg.cancel(err)
-			})
-	})
-	tg.Go(func() {
-		fb.AwaitCtx(tg.ctx).
-			Tap(func(v B) { b = v }).
-			TapErr(func(err error) {
-				fa.Cancel(err)
-				fc.Cancel(err)
-				once.Do(func() { prom.Reject(err) })
-				tg.cancel(err)
-			})
-	})
-	tg.Go(func() {
-		fc.AwaitCtx(tg.ctx).
-			Tap(func(v C) { c = v }).
-			TapErr(func(err error) {
-				fa.Cancel(err)
-				fb.Cancel(err)
-				once.Do(func() { prom.Reject(err) })
-				tg.cancel(err)
-			})
-	})
+	fail := func(err error) {
+		once.Do(func() { prom.Reject(err) })
+		sa.Future().Cancel(err)
+		sb.Future().Cancel(err)
+		sc.Future().Cancel(err)
+	}
+	zipBranch(tg, sa, func(v A) { a = v }, fail)
+	zipBranch(tg, sb, func(v B) { b = v }, fail)
+	zipBranch(tg, sc, func(v C) { c = v }, fail)
 
 	go func() {
 		tg.Wait()
 		once.Do(func() { prom.Resolve(adt.TripleOf(a, b, c)) })
 	}()
 	return fut
+}
+
+func zipBranch[T any](tg *TaskGroup, s Receiver[T], onVal func(T), onErr func(error)) {
+	tg.Go(func() {
+		s.Future().AwaitCtx(tg.ctx).
+			Tap(onVal).
+			TapErr(func(err error) {
+				onErr(err)
+				tg.cancel(err)
+			})
+	})
 }
 
 func watchCancel[T any](fut *Future[T], onCancel func(error)) {
@@ -368,14 +345,14 @@ func watchCancel[T any](fut *Future[T], onCancel func(error)) {
 	}()
 }
 
-func resolvedFuture[T any](val T) *Future[T] {
-	prom, fut := NewPromise[T](context.Background())
+func resolvedFuture[T any](ctx context.Context, val T) *Future[T] {
+	prom, fut := NewPromise[T](ctx)
 	prom.Resolve(val)
 	return fut
 }
 
-func rejectedFuture[T any](err error) *Future[T] {
-	prom, fut := NewPromise[T](context.Background())
+func rejectedFuture[T any](ctx context.Context, err error) *Future[T] {
+	prom, fut := NewPromise[T](ctx)
 	prom.Reject(err)
 	return fut
 }
