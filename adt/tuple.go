@@ -33,6 +33,12 @@ func (p Pair[A, B]) Unpack() (A, B) {
 	return p.first, p.second
 }
 
+// Key returns the first element, read as a map entry's key.
+func (p Pair[A, B]) Key() A { return p.first }
+
+// Value returns the second element, read as a map entry's value.
+func (p Pair[A, B]) Value() B { return p.second }
+
 func unmarshalJSON[T any](data []byte) Result[T] {
 	var target T
 	return From(target, json.Unmarshal(data, &target))
@@ -111,4 +117,18 @@ func (t *Triple[A, B, C]) UnmarshalJSON(data []byte) error {
 		},
 		func(err error) error { return err },
 	)
+}
+
+// Keyed is Pair read as a map entry — same type, via Key()/Value() instead
+// of First()/Second().
+type Keyed[K, V any] = Pair[K, V]
+
+// Indexed pairs a value with its position in the sequence that produced it —
+// stream.Enumerate's and async.Pipe's Enumerate's element type. Unlike Pair
+// and Triple, its fields are exported: callers construct and destructure it
+// via plain struct literals (Indexed[T]{Index: i, Value: v}), so both
+// packages can share this one type without a manual rewrap at the boundary.
+type Indexed[T any] struct {
+	Index int
+	Value T
 }
