@@ -283,29 +283,26 @@ func Window[T any](p Pipe[T], n int) Pipe[[]T] {
 	return Pipe[[]T]{ch: out, ctx: p.ctx}
 }
 
-// Indexed pairs an item with its position in whatever Pipe produced it.
-type Indexed[T any] = adt.Indexed[T]
-
 // Enumerate tags each item with its position as it's produced. Call this
 // right after From/Go if a later stage (typically Parallel) will
 // scramble arrival order and Ordered must restore it afterward — nothing
 // tracks position unless you ask for it here. A free function for the
 // same instantiation-cycle reason as Window.
-func Enumerate[T any](p Pipe[T]) Pipe[Indexed[T]] {
-	out := make(chan Indexed[T])
+func Enumerate[T any](p Pipe[T]) Pipe[adt.Indexed[T]] {
+	out := make(chan adt.Indexed[T])
 	go func() {
 		defer close(out)
 		i := 0
 		for item := range p.ch {
 			select {
-			case out <- Indexed[T]{Index: i, Value: item}:
+			case out <- adt.Indexed[T]{Index: i, Value: item}:
 			case <-p.ctx.Done():
 				return
 			}
 			i++
 		}
 	}()
-	return Pipe[Indexed[T]]{ch: out, ctx: p.ctx}
+	return Pipe[adt.Indexed[T]]{ch: out, ctx: p.ctx}
 }
 
 // OrderedN buffers Indexed items until they can be emitted strictly in
@@ -314,7 +311,7 @@ func Enumerate[T any](p Pipe[T]) Pipe[Indexed[T]] {
 // buffer: if more than maxPending items are waiting for a missing
 // predecessor, the pipeline stops to avoid unbounded memory growth.
 // Pass 0 for no limit (same semantics as Ordered). Panics if maxPending < 0.
-func OrderedN[T any](p Pipe[Indexed[T]], maxPending int) Pipe[T] {
+func OrderedN[T any](p Pipe[adt.Indexed[T]], maxPending int) Pipe[T] {
 	if maxPending < 0 {
 		panic("async: OrderedN maxPending must be non-negative")
 	}
@@ -351,7 +348,7 @@ func OrderedN[T any](p Pipe[Indexed[T]], maxPending int) Pipe[T] {
 // a concurrent stage in between introduced. One badly-delayed item
 // stalls everything queued behind it — the standard cost of restoring
 // order after concurrent work. Use OrderedN to cap the reorder buffer.
-func Ordered[T any](p Pipe[Indexed[T]]) Pipe[T] {
+func Ordered[T any](p Pipe[adt.Indexed[T]]) Pipe[T] {
 	return OrderedN(p, 0)
 }
 

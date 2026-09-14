@@ -349,15 +349,12 @@ func (s Stream[T]) DropWhile(fn func(T) bool) Stream[T] {
 	return s.Gather(dropWhileGatherer(fn))
 }
 
-// Indexed pairs an element with its position — Enumerate's element type.
-type Indexed[T any] = adt.Indexed[T]
-
 // enumerateGatherer is Enumerate's shared engine.
-func enumerateGatherer[T any]() Gatherer[T, int, Indexed[T]] {
-	return Gatherer[T, int, Indexed[T]]{
+func enumerateGatherer[T any]() Gatherer[T, int, adt.Indexed[T]] {
+	return Gatherer[T, int, adt.Indexed[T]]{
 		Init: func() int { return 0 },
-		Integrate: func(i int, item T, emit func(Indexed[T])) (int, bool) {
-			emit(Indexed[T]{Index: i, Value: item})
+		Integrate: func(i int, item T, emit func(adt.Indexed[T])) (int, bool) {
+			emit(adt.Indexed[T]{Index: i, Value: item})
 			return i + 1, true
 		},
 	}
@@ -373,7 +370,7 @@ func enumerateGatherer[T any]() Gatherer[T, int, Indexed[T]] {
 // false "instantiation cycle" — confirmed via a minimal repro to be that
 // specific shape, unrelated to Gather itself. The identical logic, called
 // as a free function taking Stream[T] as a parameter, compiles cleanly.
-func Enumerate[T any](s Stream[T]) Stream[Indexed[T]] {
+func Enumerate[T any](s Stream[T]) Stream[adt.Indexed[T]] {
 	return s.Gather(enumerateGatherer[T]())
 }
 
