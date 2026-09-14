@@ -158,10 +158,10 @@ func AuditGraphTopology(startNode string, nodes map[string]GraphNodeSpec) adt.Re
     }
 
     // Check invalid dual Fork configuration
-    if conflict := stream.OfMap(nodes).First(func(p stream.Pair[string, GraphNodeSpec]) bool {
-        return p.Second.IsFork && len(p.Second.Transitions) > 0
+    if conflict := stream.OfMap(nodes).First(func(p adt.Pair[string, GraphNodeSpec]) bool {
+        return p.Second().IsFork && len(p.Second().Transitions) > 0
     }); conflict.IsSome() {
-        return adt.Err[GraphAudit](fmt.Errorf("invalid fork: %s", conflict.MustGet().First))
+        return adt.Err[GraphAudit](fmt.Errorf("invalid fork: %s", conflict.MustGet().First()))
     }
 
     // BFS reachability traversal...
