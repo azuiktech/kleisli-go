@@ -1,6 +1,6 @@
 # Chapter 1: Algebraic Data Types (`adt`)
 
-The `adt` package consolidates foundational generic algebraic data types: `Result[T]`, `Option[T]`, `Unit`/`Void`, `Lazy[T]`, and `Any`. It replaces fragmented implementations, eliminates repetitive package naming (`result.Result`, `option.Option`), and enables clean generic method chaining across type boundaries (`Map[U]`, `FlatMap[U]`, `Then[U]`).
+The `adt` package consolidates foundational generic algebraic data types: `Result[T]`, `Option[T]`, `Unit`/`Void`, `Lazy[T]`, `Any`, and the tuple family `Pair[A, B]`/`Triple[A, B, C]` (with `Keyed[K, V]` and `Indexed[T]`). It replaces fragmented implementations, eliminates repetitive package naming (`result.Result`, `option.Option`), and enables clean generic method chaining across type boundaries (`Map[U]`, `FlatMap[U]`, `Then[U]`).
 
 ```go
 import "github.com/azuiktech/kleisli-go/adt"
@@ -270,7 +270,52 @@ loginEvent := adt.As[LoginEvent](restored).MustGet()
 
 ---
 
-## 6. Practical Real-World Scenarios
+## 6. Pair, Triple, Keyed & Indexed
+
+Small tuple types for carrying two, three, or a position-tagged value through a pipeline without a bespoke struct.
+
+### Pair[A, B] and Triple[A, B, C]
+
+```go
+type Pair[A, B any] struct { /* unexported fields */ }
+type Triple[A, B, C any] struct { /* unexported fields */ }
+```
+
+| Function / Method | Signature | Description |
+|---|---|---|
+| `PairOf(a, b)` | `func PairOf[A, B any](first A, second B) Pair[A, B]` | Constructs an ordered pair. |
+| `TripleOf(a, b, c)` | `func TripleOf[A, B, C any](first A, second B, third C) Triple[A, B, C]` | Constructs an ordered triple. |
+| `First()` / `Second()` / `Third()` | `func (p Pair[A, B]) First() A`, etc. | Positional accessors. |
+| `Key()` / `Value()` | `func (p Pair[A, B]) Key() A`, `func (p Pair[A, B]) Value() B` | Same fields as `First()`/`Second()`, named for reading a `Pair` as a map entry. |
+| `Swap()` | `func (p Pair[A, B]) Swap() Pair[B, A]` | Returns a new pair with components reversed. |
+| `Unpack()` | `func (p Pair[A, B]) Unpack() (A, B)` | Returns the components as a Go multi-value return. |
+
+Both types round-trip through JSON (`MarshalJSON`/`UnmarshalJSON`) as `{"first":...,"second":...}` / `{"first":...,"second":...,"third":...}`.
+
+`fn.First`/`fn.Second`/`fn.Third`/`fn.Key`/`fn.Value` (see [Chapter 2](02_fn.md)) extract these components generically from any type exposing the matching method — not just `Pair`/`Triple` — via structural interfaces (`fn.HasFirst[A]`, `fn.HasKey[K]`, etc.).
+
+### Keyed[K, V]
+
+```go
+type Keyed[K, V any] = Pair[K, V]
+```
+
+A plain alias, not a new type — `Keyed[K, V]` is `Pair[K, V]`, used where a pair is conceptually a map entry. `Stream.ToMapBy`/`Seq.ToMapBy` take a `func(T) (K, V)` projection, which `p.Unpack()` supplies directly for a `Pair`/`Keyed` element; `fn.Key`/`fn.Value` (below) extract one side at a time.
+
+### Indexed[T]
+
+```go
+type Indexed[T any] struct {
+    Index int
+    Value T
+}
+```
+
+Pairs a value with its position in the sequence that produced it — the element type of `stream.Enumerate`/`stream.EnumerateSeq` and `async.Pipe`'s `Enumerate`. Unlike `Pair`/`Triple`, its fields are exported, so callers construct and destructure it with plain struct literals (`adt.Indexed[T]{Index: i, Value: v}`). `stream` and `async` both reference this one type directly (there is no `stream.Indexed`/`async.Indexed`), so a value produced by one package's `Enumerate` feeds directly into the other's `Ordered`/`OrderedN` with no conversion.
+
+---
+
+## 7. Practical Real-World Scenarios
 
 ### Scenario A: Multi-Field Configuration Parser (`Results.Zip3`, `Recover`)
 

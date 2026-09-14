@@ -24,7 +24,7 @@ Comprehensive, function-by-function chapterwise API catalogs and real-world reci
 
 | Chapter | Topic | Highlights & Contents |
 |---|---|---|
-| [Chapter 1: adt](docs/01_adt.md) | **Algebraic Data Types** | `Result[T]`, `Option[T]`, `Unit`/`Void`, `Lazy[T]`, `Any` dynamic box, JSON serialization |
+| [Chapter 1: adt](docs/01_adt.md) | **Algebraic Data Types** | `Result[T]`, `Option[T]`, `Unit`/`Void`, `Lazy[T]`, `Any` dynamic box, `Pair`/`Triple`/`Keyed`/`Indexed`, JSON serialization |
 | [Chapter 2: fn](docs/02_fn.md) | **Functional Utilities** | Value helpers, bound predicates, point-free composition, rotated algorithms, parsers, string transforms |
 | [Chapter 3: stream](docs/03_stream.md) | **Data Pipelines** | Eager `Stream[T]`, lazy `Seq[T]`, numeric aggregations (`NumberStream`), async bridging |
 | [Chapter 4: async](docs/04_async.md) | **Concurrency & Coroutines** | CSP `Pipe[T]`, `Future`/`Promise`, `Task`/`Co` coroutine engine, `Sync[T]`, `Ctx[T]` |
@@ -134,7 +134,7 @@ grouped := stream.Of(invoices).
 // Short-circuits: stops pulling immediately on first match
 foundOpt := stream.FromSeq(generator).
     Filter(isValid).
-    FirstOpt(matchesQuery)
+    First(matchesQuery) // adt.Option[T]
 ```
 
 #### Numeric Streams & Concurrency Bridge

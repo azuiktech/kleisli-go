@@ -36,12 +36,13 @@ import "github.com/azuiktech/kleisli-go/async"
 | `p.Parallel[U](n, fn)`| `func (p Pipe[T]) Parallel[U any](n int, fn func(T) U) Pipe[U]` | Spawns a pool of `n` worker goroutines. Output order is non-deterministic. |
 | `p.Buffer(size)` | `func (p Pipe[T]) Buffer(size int) Pipe[T]` | Inserts an asynchronous ring buffer of capacity `size`. |
 | `p.RateLimit(r, b)`| `func (p Pipe[T]) RateLimit(limit rate.Limit, burst int) Pipe[T]` | Token-bucket rate limiter via `golang.org/x/time/rate`. |
-| `p.Fork(n)` | `func (p Pipe[T]) Fork(n int) []Pipe[T]` | Splits pipe into `n` identical broadcast copies (unbuffered). |
-| `ForkBuffered(p, n, buf)`| `func ForkBuffered[T any](p Pipe[T], n, buf int) []Pipe[T]` | Splits pipe into `n` broadcast copies with buffered channels. |
-| `Merge(pipes...)` | `func Merge[T any](pipes ...Pipe[T]) Pipe[T]` | Fan-in: merges multiple pipes into one unified output pipe. |
+| `p.Fork(n)` | `func (p Pipe[T]) Fork(n int) []Pipe[T]` | Splits pipe into `n` identical broadcast copies (unbuffered). Every branch must be read at roughly the same pace — a slow branch stalls the shared pump for all siblings. |
+| `Merge(pipes...)` | `func Merge[T any](pipes ...Pipe[T]) Pipe[T]` | Fan-in: merges multiple pipes into one unified output pipe. Only `pipes[0]`'s context governs cancellation of the merged output. |
 | `p.Window(size)` | `func (p Pipe[T]) Window(size int) Pipe[[]T]` | Groups stream elements into fixed-size chunks of `size`. |
 | `p.Batch(size, dur)`| `func (p Pipe[T]) Batch(size int, timeout time.Duration) Pipe[[]T]` | Emits batches when `size` elements accumulate or `timeout` elapses. |
-| `Ordered(p)` | `func Ordered[T any](p Pipe[Indexed[T]]) Pipe[T]` | Re-orders out-of-order `Indexed[T]` elements (restores sequential order after `Parallel`). |
+| `Enumerate(p)` | `func Enumerate[T any](p Pipe[T]) Pipe[adt.Indexed[T]]` | Tags each item with its position as it's produced. Call this right before a stage (typically `Parallel`) that may scramble arrival order. |
+| `Ordered(p)` | `func Ordered[T any](p Pipe[adt.Indexed[T]]) Pipe[T]` | Re-orders out-of-order `adt.Indexed[T]` elements — `Enumerate`'s pair, restoring sequential order after `Parallel`. Unbounded reorder buffer. |
+| `OrderedN(p, max)` | `func OrderedN[T any](p Pipe[adt.Indexed[T]], maxPending int) Pipe[T]` | Same as `Ordered`, but stops once more than `maxPending` items are waiting for a missing predecessor, instead of buffering without limit. |
 
 ### Terminals
 
@@ -233,7 +234,7 @@ func CrawlPipeline(ctx context.Context, targetURLs []string, dbSaver func([]Docu
 }
 ```
 
-### Scenario B: Multi-Channel Event Broadcast & Fan-In (`ForkBuffered`, `Merge`)
+### Scenario B: Multi-Channel Event Broadcast & Fan-In (`Fork`, `Merge`)
 
 Broadcasting incoming security events simultaneously to multiple sinks (Slack, PagerDuty, Elastic), and collecting acknowledgments into a single monitoring pipe:
 
@@ -251,8 +252,10 @@ type DeliveryReceipt struct {
 func FanOutFanInAlerts(ctx context.Context, events []SecurityEvent) []DeliveryReceipt {
     pipeline := async.FromContext(ctx, events)
 
-    // Fork into 3 independent buffered streams
-    sinks := async.ForkBuffered(pipeline, 3, 64)
+    // Fork into 3 independent broadcast streams — each must be read at
+    // roughly the same pace, or a slow sink stalls the shared pump for
+    // the other two.
+    sinks := pipeline.Fork(3)
 
     slackPipe := sinks[0].Map(func(ev SecurityEvent) DeliveryReceipt {
         sendSlackAlert(ev)

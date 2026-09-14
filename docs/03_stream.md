@@ -31,12 +31,12 @@ import "github.com/azuiktech/kleisli-go/stream"
 | `Clone()` | `func (s Stream[T]) Clone() Stream[T]` | Clones the underlying slice to isolate mutations. |
 | `Filter(fn)` | `func (s Stream[T]) Filter(fn func(T) bool) Stream[T]` | Retains elements satisfying `fn`. |
 | `Map[U](fn)` | `func (s Stream[T]) Map[U any](fn func(T) U) Stream[U]` | Transforms elements from type `T` to type `U`. |
-| `FlatMap[U](fn)`| `func (s Stream[T]) FlatMap[U any](fn func(T) Stream[U]) Stream[U]` | Flattens one-to-many stream projections. |
+| `FlatMap[U](fn)`| `func (s Stream[T]) FlatMap[U any](fn func(T) []U) Stream[U]` | Maps each element to a slice of `U` and concatenates the results. |
 | `Take(n)` | `func (s Stream[T]) Take(n int) Stream[T]` | Takes the first `n` elements. |
-| `Drop(n)` | `func (s Stream[T]) Drop(n int) Stream[T]` | Skips the first `n` elements. |
+| `Skip(n)` | `func (s Stream[T]) Skip(n int) Stream[T]` | Skips the first `n` elements. |
 | `TakeWhile(fn)` | `func (s Stream[T]) TakeWhile(fn func(T) bool) Stream[T]` | Takes prefix while `fn` is true. |
 | `DropWhile(fn)` | `func (s Stream[T]) DropWhile(fn func(T) bool) Stream[T]` | Skips prefix while `fn` is true. |
-| `Enumerate()` | `func (s Stream[T]) Enumerate() Stream[Indexed[T]]` | Indexes items with 0-based positions (`Indexed[T]{Index, Value}`). |
+| `Enumerate[T]` | `func Enumerate[T any](s Stream[T]) Stream[adt.Indexed[T]]` | Indexes items with 0-based positions (`adt.Indexed[T]{Index, Value}`). A free function, not a method, called as `stream.Enumerate(s)`. |
 | `Reverse()` | `func (s Stream[T]) Reverse() Stream[T]` | Reverses slice in-place in the stream. |
 
 ### Sorting & Grouping (Slice-Only Operations)
@@ -47,9 +47,10 @@ These operations are exclusive to `Stream[T]` because they require inspecting th
 |---|---|---|
 | `SortBy[K]` | `func (s Stream[T]) SortBy[K cmp.Ordered](fn func(T) K) Stream[T]` | Stable sorts elements by an extracted ordered key. |
 | `SortByCached[K]` | `func (s Stream[T]) SortByCached[K cmp.Ordered](fn func(T) K) Stream[T]` | Caches sort keys for expensive extractors before sorting. |
-| `SortByCompare(fn)`| `func (s Stream[T]) SortByCompare(fn func(T, T) int) Stream[T]` | Sorts elements using a custom comparator (-1, 0, 1). |
+| `SortFunc(less)`| `func (s Stream[T]) SortFunc(less func(a, b T) int) Stream[T]` | Sorts elements using a custom comparator (-1, 0, 1) — useful when the ordering isn't expressible as a key projection. Stable, matching `SortBy`. |
 | `GroupBy[K](fn)` | `func (s Stream[T]) GroupBy[K comparable](fn func(T) K) map[K][]T` | Buckets elements into a map of slices by key `K`. |
-| `ToMap[K, V](k, v)`| `func (s Stream[T]) ToMap[K comparable, V any](keyFn func(T) K, valFn func(T) V) map[K]V` | Materializes elements into a `map[K]V`. |
+| `ToMap[K, V](fn)`| `func (s Stream[T]) ToMap[K comparable, V any](fn func(T) (K, V)) map[K]V` | Materializes elements into a `map[K]V`, extracting a key and value from each. Later elements overwrite earlier ones on key collision. |
+| `ToMapBy[K, V](fn, merge)`| `func (s Stream[T]) ToMapBy[K comparable, V any](fn func(T) (K, V), merge func(existing, incoming V) V) map[K]V` | Like `ToMap`, but `merge` decides the value on key collision instead of last-write-wins. Use `stream.KeepFirst`, `stream.KeepLast`, or a custom combiner. |
 | `Partition(fn)` | `func (s Stream[T]) Partition(fn func(T) bool) (Stream[T], Stream[T])` | Splits stream into `(matches, nonMatches)`. |
 
 ### Terminals, Search & Aggregations
@@ -58,22 +59,18 @@ These operations are exclusive to `Stream[T]` because they require inspecting th
 |---|---|---|
 | `Collect()` | `func (s Stream[T]) Collect() []T` | Materializes elements into a standard Go slice. |
 | `Len()` | `func (s Stream[T]) Len() int` | Returns element count. |
-| `IsEmpty()` | `func (s Stream[T]) IsEmpty() bool` | Reports whether element count is zero. |
-| `Last()` | `func (s Stream[T]) Last() adt.Option[T]` | Returns `Some(lastElement)` or `None`. |
+| `Last(fn)` | `func (s Stream[T]) Last(fn func(T) bool) adt.Option[T]` | Returns `Some(last element satisfying fn)` or `None`. Scans backward — O(1) best case. |
 | `Tap(fn)` | `func (s Stream[T]) Tap(fn func(T)) Stream[T]` | Executes side-effect on every item; returns stream for chaining. |
 | `ForEach(fn)` | `func (s Stream[T]) ForEach(fn func(T))` | Terminal consumer executing side-effect on every item (returns void). |
 | `AnyOf(fn)` | `func (s Stream[T]) AnyOf(fn func(T) bool) bool` | Returns true if at least one item satisfies `fn` (short-circuits). |
 | `AllOf(fn)` | `func (s Stream[T]) AllOf(fn func(T) bool) bool` | Returns true if all items satisfy `fn` (short-circuits). |
 | `NoneOf(fn)` | `func (s Stream[T]) NoneOf(fn func(T) bool) bool` | Returns true if no items satisfy `fn` (short-circuits). |
 | `All()` | `func (s Stream[T]) All() iter.Seq[T]` | Standard range-over-func iterator over stream elements. |
-| `First(fn)` | `func (s Stream[T]) First(fn func(T) bool) (T, bool)` | Returns first matching element and boolean indicator. |
-| `FirstOpt(fn)` | `func (s Stream[T]) FirstOpt(fn func(T) bool) adt.Option[T]` | Returns first matching element as `Option[T]`. |
+| `First(fn)` | `func (s Stream[T]) First(fn func(T) bool) adt.Option[T]` | Returns `Some(first element satisfying fn)`, or `None`. |
 | `Reduce[U](init, fn)`| `func (s Stream[T]) Reduce[U any](initial U, fn func(acc U, item T) U) U` | Left-folds items into an accumulator of type `U`. |
-| `Fold[U](init, fn)`| `func (s Stream[T]) Fold[U any](initial U, fn func(acc U, item T) U) U` | Alias for `Reduce`. |
 | `MinBy[K](fn)` | `func (s Stream[T]) MinBy[K cmp.Ordered](fn func(T) K) adt.Option[T]` | Returns item with minimal extracted key. |
 | `MaxBy[K](fn)` | `func (s Stream[T]) MaxBy[K cmp.Ordered](fn func(T) K) adt.Option[T]` | Returns item with maximal extracted key. |
-| `MinByCompare(fn)`| `func (s Stream[T]) MinByCompare(fn func(T, T) int) adt.Option[T]` | Finds minimum using custom comparison. |
-| `MaxByCompare(fn)`| `func (s Stream[T]) MaxByCompare(fn func(T, T) int) adt.Option[T]` | Finds maximum using custom comparison. |
+| `MinByCompare(fn)`| `func (s Stream[T]) MinByCompare(fn func(T, T) int) adt.Option[T]` | Finds minimum using custom comparison. `MaxBy` covers the maximum case — there is no `MaxByCompare`. |
 
 ### Free Functions
 
@@ -113,22 +110,22 @@ usersByCountry := stream.Of(users).
 |---|---|---|
 | `Filter(fn)` | `func (s Seq[T]) Filter(fn func(T) bool) Seq[T]` | Yields only items satisfying predicate. |
 | `Map[U](fn)` | `func (s Seq[T]) Map[U any](fn func(T) U) Seq[U]` | Lazily transforms items from `T` to `U`. |
-| `FlatMap[U](fn)`| `func (s Seq[T]) FlatMap[U any](fn func(T) Seq[U]) Seq[U]` | Lazily chains sub-iterators. |
+| `FlatMap[U](fn)`| `func (s Seq[T]) FlatMap[U any](fn func(T) []U) Seq[U]` | Maps each element to a slice of `U` and flattens the results. |
 | `Take(n)` | `func (s Seq[T]) Take(n int) Seq[T]` | Pulls at most `n` items then stops iterator. |
-| `Drop(n)` | `func (s Seq[T]) Drop(n int) Seq[T]` | Skips first `n` items. |
+| `Skip(n)` | `func (s Seq[T]) Skip(n int) Seq[T]` | Skips first `n` items. |
 | `TakeWhile(fn)` | `func (s Seq[T]) TakeWhile(fn func(T) bool) Seq[T]` | Pulls items while `fn` is true; short-circuits. |
 | `DropWhile(fn)` | `func (s Seq[T]) DropWhile(fn func(T) bool) Seq[T]` | Drops prefix while `fn` is true. |
-| `Enumerate()` | `func (s Seq[T]) Enumerate() Seq[Indexed[T]]` | Pairs each yielded item with its 0-based index. |
+| `EnumerateSeq[T]` | `func EnumerateSeq[T any](s Seq[T]) Seq[adt.Indexed[T]]` | Pairs each yielded item with its 0-based index. A free function, called as `stream.EnumerateSeq(s)` — named to avoid shadowing `Stream`'s `Enumerate` in the same package. |
 | `Tap(fn)` | `func (s Seq[T]) Tap(fn func(T)) Seq[T]` | Lazily inspects elements as they pass through without draining. |
 | `ForEach(fn)` | `func (s Seq[T]) ForEach(fn func(T))` | Terminal consumer running `fn` on all elements (returns void). |
 | `AnyOf(fn)` | `func (s Seq[T]) AnyOf(fn func(T) bool) bool` | Short-circuits on first `true`. |
 | `AllOf(fn)` | `func (s Seq[T]) AllOf(fn func(T) bool) bool` | Short-circuits on first `false`. |
 | `NoneOf(fn)` | `func (s Seq[T]) NoneOf(fn func(T) bool) bool` | Short-circuits on first `true`. |
 | `All()` | `func (s Seq[T]) All() iter.Seq[T]` | Standard range-over-func iterator over sequence elements. |
-| `First(fn)` | `func (s Seq[T]) First(fn func(T) bool) (T, bool)` | Short-circuits finding first match. |
-| `FirstOpt(fn)` | `func (s Seq[T]) FirstOpt(fn func(T) bool) adt.Option[T]` | Short-circuits returning match as `Option[T]`. |
+| `First(fn)` | `func (s Seq[T]) First(fn func(T) bool) adt.Option[T]` | Returns `Some(first element satisfying fn)`, or `None` — short-circuits, never pulling past the match. |
 | `Reduce[U](init, fn)`| `func (s Seq[T]) Reduce[U any](initial U, fn func(acc U, item T) U) U` | Consumes sequence into accumulator `U`. |
 | `Collect()` | `func (s Seq[T]) Collect() []T` | Materializes lazy sequence into slice. |
+| `ToMapBy[K, V](fn, merge)`| `func (s Seq[T]) ToMapBy[K comparable, V any](fn func(T) (K, V), merge func(existing, incoming V) V) map[K]V` | Builds a `map[K]V` with explicit collision handling via `merge`. Use `stream.KeepFirst`, `stream.KeepLast`, or a custom combiner. |
 | `ToStream()` | `func (s Seq[T]) ToStream() Stream[T]` | Materializes lazy sequence into eager `Stream[T]`. |
 
 ### Seq Free Functions
@@ -136,14 +133,18 @@ usersByCountry := stream.Of(users).
 | Function | Signature | Description |
 |---|---|---|
 | `DistinctSeq[T]` | `func DistinctSeq[T comparable](s Seq[T]) Seq[T]` | Deduplicates items lazily with an internal set. |
-| `FlattenSeq[T]` | `func FlattenSeq[T any](s Seq[Seq[T]]) Seq[T]` | Flattens nested lazy sequences. |
-| `ZipSeq[A, B]` | `func ZipSeq[A, B any](sa Seq[A], sb Seq[B]) Seq[Pair[A, B]]` | Pairs two lazy sequences using `iter.Pull`. |
+| `FlattenSeq[T]` | `func FlattenSeq[T any](s Seq[[]T]) Seq[T]` | Collapses a `Seq[[]T]` into a `Seq[T]`, yielding each inner slice's elements in order. |
+| `ZipSeq[A, B]` | `func ZipSeq[A, B any](sa Seq[A], sb Seq[B]) Seq[adt.Pair[A, B]]` | Pairs two lazy sequences positionally, stopping at the shorter one, using `iter.Pull`. |
+| `ZipSeq3[A, B, C]` | `func ZipSeq3[A, B, C any](sa Seq[A], sb Seq[B], sc Seq[C]) Seq[adt.Triple[A, B, C]]` | Triples three lazy sequences positionally, stopping at the shortest one. |
+| `SeqOf[T]` | `func SeqOf[T any](items ...T) Seq[T]` | Constructs a lazy `Seq` yielding the given items. |
+| `SeqOfMap[K, V]` | `func SeqOfMap[K comparable, V any](m map[K]V) Seq[adt.Pair[K, V]]` | Wraps a map's entries as a `Seq` of `adt.Pair` — the lazy counterpart of `OfMap`. |
+| `EmptySeq[T]` | `func EmptySeq[T any]() Seq[T]` | Returns an empty lazy `Seq`. |
 
 ```go
 // Short-circuits: only evaluates until a match is found
-found, ok := stream.FromSeq(hugeGenerator).
+found := stream.FromSeq(hugeGenerator).
     Filter(isValid).
-    First(matchesQuery)
+    First(matchesQuery) // adt.Option[T]: Some(match) or None
 ```
 
 ---
@@ -228,8 +229,8 @@ func TopKFrequentWords(documents []string, k int) []WordCount {
     grouped := stream.Of(words).GroupBy(fn.Identity[string])
     
     counts := stream.OfMap(grouped).
-        Map(func(p stream.Pair[string, []string]) WordCount {
-            return WordCount{Word: p.First, Count: len(p.Second)}
+        Map(func(p adt.Pair[string, []string]) WordCount {
+            return WordCount{Word: p.First(), Count: len(p.Second())}
         }).
         SortBy(WordCount.Freq).
         Reverse().
@@ -262,15 +263,15 @@ func CalculatePriceDeltas(ticks []PriceTick) []PriceChange {
     }
 
     currents := stream.Of(ticks)
-    nexts := stream.Of(ticks).Drop(1)
+    nexts := stream.Of(ticks).Skip(1)
 
     // Zip tick[i] with tick[i+1]
     return stream.Zip(currents, nexts).
-        Map(func(p stream.Pair[PriceTick, PriceTick]) PriceChange {
+        Map(func(p adt.Pair[PriceTick, PriceTick]) PriceChange {
             return PriceChange{
-                From:  p.First.Price,
-                To:    p.Second.Price,
-                Delta: p.Second.Price - p.First.Price,
+                From:  p.First().Price,
+                To:    p.Second().Price,
+                Delta: p.Second().Price - p.First().Price,
             }
         }).
         Collect()
