@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"golang.org/x/time/rate"
+
+	"github.com/azuiktech/kleisli-go/adt"
 )
 
 func TestFrom_ProducesItemsInOrder(t *testing.T) {
@@ -264,7 +266,7 @@ func TestWindow_BatchesIntoFixedChunks(t *testing.T) {
 
 func TestEnumerate_TagsWithPosition(t *testing.T) {
 	got := Enumerate(From([]string{"a", "b", "c"})).Collect()
-	want := []Indexed[string]{{Index: 0, Value: "a"}, {Index: 1, Value: "b"}, {Index: 2, Value: "c"}}
+	want := []adt.Indexed[string]{{Index: 0, Value: "a"}, {Index: 1, Value: "b"}, {Index: 2, Value: "c"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Enumerate().Collect() = %+v, want %+v", got, want)
 	}
@@ -275,9 +277,9 @@ func TestOrdered_RestoresOrderAfterParallel(t *testing.T) {
 
 	// Parallel scrambles arrival order: earlier items sleep longer, so
 	// they finish last unless Ordered puts them back in place.
-	scramble := func(item Indexed[int]) Indexed[int] {
+	scramble := func(item adt.Indexed[int]) adt.Indexed[int] {
 		time.Sleep(time.Duration(10-item.Value) * time.Millisecond)
-		return Indexed[int]{Index: item.Index, Value: item.Value}
+		return adt.Indexed[int]{Index: item.Index, Value: item.Value}
 	}
 
 	got := Ordered(Enumerate(From(items)).Parallel(4, scramble)).Collect()
@@ -358,7 +360,7 @@ func TestWindow_PanicsOnZeroSize(t *testing.T) {
 func TestOrderedN_StopsWhenBufferExceeded(t *testing.T) {
 	// Items 1,2,3 arrive out of order — index 0 never arrives so 1 and 2
 	// pile up. With maxPending=1, the pipeline should stop before collecting all.
-	p := FromContext(context.Background(), []Indexed[int]{
+	p := FromContext(context.Background(), []adt.Indexed[int]{
 		{Index: 1, Value: 10},
 		{Index: 2, Value: 20},
 		{Index: 3, Value: 30},

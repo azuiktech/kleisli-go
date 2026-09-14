@@ -278,7 +278,7 @@ func TestDistinctSeq(t *testing.T) {
 
 func TestEnumerateSeq(t *testing.T) {
 	got := EnumerateSeq(FromSeq(slices.Values([]string{"a", "b", "c"}))).Collect()
-	want := []Indexed[string]{{Index: 0, Value: "a"}, {Index: 1, Value: "b"}, {Index: 2, Value: "c"}}
+	want := []adt.Indexed[string]{{Index: 0, Value: "a"}, {Index: 1, Value: "b"}, {Index: 2, Value: "c"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("EnumerateSeq().Collect() = %+v, want %+v", got, want)
 	}

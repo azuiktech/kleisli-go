@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/azuiktech/kleisli-go/adt"
 	"github.com/azuiktech/kleisli-go/async"
 )
 
@@ -65,7 +66,7 @@ func TestRegion_OrderedParallel_PreservesInputOrder(t *testing.T) {
 	// Region + Enumerate/Ordered restores order Parallel alone doesn't
 	// guarantee — the escape hatch Stream.Parallel's own doc points to.
 	items := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
-	scramble := func(item async.Indexed[int]) async.Indexed[int] {
+	scramble := func(item adt.Indexed[int]) adt.Indexed[int] {
 		time.Sleep(time.Duration(10-item.Value) * time.Millisecond)
 		return item
 	}

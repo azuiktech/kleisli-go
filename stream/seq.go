@@ -313,7 +313,7 @@ func DistinctSeq[T comparable](s Seq[T]) Seq[T] {
 // EnumerateSeq pairs each element with its zero-based index — Seq's own
 // Enumerate. A free function, not a method, for the same
 // instantiation-cycle reason Stream's Enumerate already is.
-func EnumerateSeq[T any](s Seq[T]) Seq[Indexed[T]] {
+func EnumerateSeq[T any](s Seq[T]) Seq[adt.Indexed[T]] {
 	return s.Gather(enumerateGatherer[T]())
 }
 
