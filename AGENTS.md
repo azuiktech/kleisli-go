@@ -18,6 +18,7 @@ Before committing, pushing, or creating any Pull Request:
    golangci-lint run --fix ./...
    ```
    All remaining warnings or errors must be fixed before opening a PR. Never raise a PR with lint errors.
+   - **ZERO LINTER SUPPRESSIONS**: Skipping, disabling, or suppressing any checks or linters (e.g. using `//nolint`, `//nolint:...`, or modifying linter configs to ignore errors) is strictly forbidden. If a linter, compiler, or analyzer reports a fault, the underlying code architecture and memory design must be fixed. No check may ever be bypassed.
 
 2. **Mandatory Test Verification**:
    Execute the full test suite and confirm 100% clean pass:
