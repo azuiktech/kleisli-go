@@ -91,11 +91,11 @@ func TestPackagedTask_DeferredRun_WorkerPool(t *testing.T) {
 }
 
 func TestPackagedTask_CancelBeforeRun(t *testing.T) {
-	var observedErr error
+	executed := false
 	customErr := errors.New("cancelled before start")
 
 	task := PackagedTask[int, int](Config{}, func(co *Co, in int) adt.Result[int] {
-		observedErr = co.Err()
+		executed = true
 		return adt.OK(in * 100)
 	})
 
@@ -110,8 +110,30 @@ func TestPackagedTask_CancelBeforeRun(t *testing.T) {
 	if !errors.Is(res.MustErr(), customErr) {
 		t.Errorf("got %v, want %v", res.MustErr(), customErr)
 	}
-	if !errors.Is(observedErr, context.Canceled) {
-		t.Errorf("expected co.Err() to be context.Canceled inside fn, got: %v", observedErr)
+	if executed {
+		t.Fatal("fn should not execute when task was cancelled before Run")
+	}
+}
+
+func TestPackagedTask_ExpiredContextBeforeRun(t *testing.T) {
+	executed := false
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	task := PackagedTask[int, int](Config{Context: NewGoroutineContext(ctx)}, func(co *Co, in int) adt.Result[int] {
+		executed = true
+		return adt.OK(in * 100)
+	})
+
+	res := task.Run(5)
+	if res.IsOK() {
+		t.Fatalf("expected Err, got: %v", res.MustGet())
+	}
+	if !errors.Is(res.MustErr(), context.Canceled) {
+		t.Errorf("got %v, want context.Canceled", res.MustErr())
+	}
+	if executed {
+		t.Fatal("fn should not execute when context expired before Run")
 	}
 }
 
@@ -516,15 +538,18 @@ func TestCoroutine_Async_ChildContextCancelledOnExit(t *testing.T) {
 }
 
 func TestCoroutine_TaskCancel(t *testing.T) {
+	started := make(chan struct{})
 	coroutineExited := make(chan struct{})
 	customErr := errors.New("aborted by caller")
 
 	task := Launch[adt.Unit, string](Config{}, adt.Void, func(co *Co, _ adt.Unit) adt.Result[string] {
+		close(started)
 		<-co.Done()
 		close(coroutineExited)
 		return adt.Err[string](context.Cause(co))
 	})
 
+	<-started
 	if !task.Cancel(customErr) {
 		t.Errorf("expected Cancel to return true")
 	}

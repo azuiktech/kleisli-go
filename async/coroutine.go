@@ -203,6 +203,9 @@ func (t *Task[I, O]) Run(in I) adt.Result[O] {
 	if !t.started.CompareAndSwap(false, true) {
 		return t.fut.Await()
 	}
+	if t.fut.Context().Err() != nil {
+		return t.fut.Await()
+	}
 	return t.run(in)
 }
 
