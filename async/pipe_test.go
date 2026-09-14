@@ -369,20 +369,3 @@ func TestOrderedN_StopsWhenBufferExceeded(t *testing.T) {
 		t.Errorf("OrderedN with exceeded buffer should produce no output, got %v", got)
 	}
 }
-
-func TestForkBuffered_EachBranchReceivesAllItems(t *testing.T) {
-	branches := ForkBuffered(From([]int{1, 2, 3}), 2, 4)
-	var a, b []int
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() { defer wg.Done(); a = branches[0].Collect() }()
-	go func() { defer wg.Done(); b = branches[1].Collect() }()
-	wg.Wait()
-	want := []int{1, 2, 3}
-	if !reflect.DeepEqual(a, want) {
-		t.Errorf("ForkBuffered branch 0 = %v, want %v", a, want)
-	}
-	if !reflect.DeepEqual(b, want) {
-		t.Errorf("ForkBuffered branch 1 = %v, want %v", b, want)
-	}
-}

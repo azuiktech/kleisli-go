@@ -603,32 +603,14 @@ func Flatten[T any](s Stream[[]T]) Stream[T] {
 // share the minimum key the first one wins — matching SortBy's stable-sort
 // semantics.
 func (s Stream[T]) MinBy[K cmp.Ordered](fn func(T) K) adt.Option[T] {
-	if len(s.items) == 0 {
-		return adt.None[T]()
-	}
-	best, bestKey := s.items[0], fn(s.items[0])
-	for _, v := range s.items[1:] {
-		if k := fn(v); k < bestKey {
-			best, bestKey = v, k
-		}
-	}
-	return adt.Some(best)
+	return s.MinByCompare(func(a, b T) int { return cmp.Compare(fn(a), fn(b)) })
 }
 
 // MaxBy returns the element with the largest key fn extracts, in a single
 // linear pass. Returns None for an empty Stream. When multiple elements
 // share the maximum key the first one wins.
 func (s Stream[T]) MaxBy[K cmp.Ordered](fn func(T) K) adt.Option[T] {
-	if len(s.items) == 0 {
-		return adt.None[T]()
-	}
-	best, bestKey := s.items[0], fn(s.items[0])
-	for _, v := range s.items[1:] {
-		if k := fn(v); k > bestKey {
-			best, bestKey = v, k
-		}
-	}
-	return adt.Some(best)
+	return s.MinByCompare(func(a, b T) int { return cmp.Compare(fn(b), fn(a)) })
 }
 
 // MinByCompare returns the minimum element using a raw comparator (negative

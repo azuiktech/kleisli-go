@@ -195,38 +195,6 @@ func (p Pipe[T]) Fork(n int) []Pipe[T] {
 	return pipes
 }
 
-// ForkBuffered is Fork with a per-branch channel buffer of bufPerBranch
-// items. A slow branch can fall up to bufPerBranch items behind the
-// shared pump without stalling its siblings. Panics if bufPerBranch < 0.
-func ForkBuffered[T any](p Pipe[T], n, bufPerBranch int) []Pipe[T] {
-	if bufPerBranch < 0 {
-		panic("async: ForkBuffered buffer size must be non-negative")
-	}
-	outs := make([]chan T, n)
-	pipes := make([]Pipe[T], n)
-	for i := range n {
-		outs[i] = make(chan T, bufPerBranch)
-		pipes[i] = Pipe[T]{ch: outs[i], ctx: p.ctx}
-	}
-	go func() {
-		defer func() {
-			for _, out := range outs {
-				close(out)
-			}
-		}()
-		for item := range p.ch {
-			for _, out := range outs {
-				select {
-				case out <- item:
-				case <-p.ctx.Done():
-					return
-				}
-			}
-		}
-	}()
-	return pipes
-}
-
 // Merge fans multiple Pipes of the same type into one, interleaved in
 // arrival order. A free function, not a method — it combines N
 // independent Pipes. The first pipe's context governs all merged

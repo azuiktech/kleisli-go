@@ -328,38 +328,14 @@ func FlattenSeq[T any](s Seq[[]T]) Seq[T] {
 // Seq fully. Returns None if the Seq is empty. When multiple elements share
 // the minimum key the first one wins.
 func (s Seq[T]) MinBy[K cmp.Ordered](fn func(T) K) adt.Option[T] {
-	var best T
-	var bestKey K
-	found := false
-	for v := range s.seq {
-		k := fn(v)
-		if !found || k < bestKey {
-			best, bestKey, found = v, k, true
-		}
-	}
-	if !found {
-		return adt.None[T]()
-	}
-	return adt.Some(best)
+	return s.MinByCompare(func(a, b T) int { return cmp.Compare(fn(a), fn(b)) })
 }
 
 // MaxBy returns the element with the largest key fn extracts, draining the
 // Seq fully. Returns None if the Seq is empty. When multiple elements share
 // the maximum key the first one wins.
 func (s Seq[T]) MaxBy[K cmp.Ordered](fn func(T) K) adt.Option[T] {
-	var best T
-	var bestKey K
-	found := false
-	for v := range s.seq {
-		k := fn(v)
-		if !found || k > bestKey {
-			best, bestKey, found = v, k, true
-		}
-	}
-	if !found {
-		return adt.None[T]()
-	}
-	return adt.Some(best)
+	return s.MinByCompare(func(a, b T) int { return cmp.Compare(fn(b), fn(a)) })
 }
 
 // MapWhile maps each element to an Option[U], emitting the unwrapped value

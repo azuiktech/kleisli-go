@@ -3,6 +3,7 @@ package async
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync/atomic"
 
 	"github.com/azuiktech/kleisli-go/adt"
@@ -146,12 +147,9 @@ func (c *Co) Call[S, R any](op Op[S, R], s S) *Future[R] {
 }
 
 func dispatchCall(handlers []CallHandler, inv CallInvocation, prom *Promise[any]) bool {
-	for _, h := range handlers {
-		if h.Handle(inv, prom) {
-			return true
-		}
-	}
-	return false
+	return slices.IndexFunc(handlers, func(h CallHandler) bool {
+		return h.Handle(inv, prom)
+	}) >= 0
 }
 
 // Task represents a packaged task (akin to std::packaged_task<O(I)>)
