@@ -1,6 +1,9 @@
 package fn
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // IsSpace reports whether s is empty or contains only whitespace characters.
 // Mirrors Go's unicode.IsSpace convention.
@@ -93,9 +96,16 @@ func Count(sub string) func(string) int {
 // Counts runes, not bytes, so multi-byte characters are handled correctly.
 func Truncate(maxLen int) func(string) string {
 	return func(s string) string {
-		if len([]rune(s)) <= maxLen {
+		if utf8.RuneCountInString(s) <= maxLen {
 			return s
 		}
-		return string([]rune(s)[:maxLen])
+		var count int
+		for i := range s {
+			if count == maxLen {
+				return s[:i]
+			}
+			count++
+		}
+		return s
 	}
 }

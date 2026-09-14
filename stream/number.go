@@ -30,12 +30,14 @@ func (s NumberStream[N]) Product() N {
 }
 
 func (s NumberStream[N]) Mean() adt.Option[float64] {
-	items := s.inner.Collect()
-	if len(items) == 0 {
+	sumCount := s.inner.Reduce(adt.PairOf(float64(0), 0), func(acc adt.Pair[float64, int], v N) adt.Pair[float64, int] {
+		return adt.PairOf(acc.First()+float64(v), acc.Second()+1)
+	})
+	sum, count := sumCount.Unpack()
+	if count == 0 {
 		return adt.None[float64]()
 	}
-	total := Of(items).Reduce(float64(0), func(acc float64, v N) float64 { return acc + float64(v) })
-	return adt.Some(total / float64(len(items)))
+	return adt.Some(sum / float64(count))
 }
 
 func (s NumberStream[N]) Min() adt.Option[N] {
@@ -66,15 +68,14 @@ func (s NumberSeq[N]) Product() N {
 }
 
 func (s NumberSeq[N]) Mean() adt.Option[float64] {
-	var count int
-	total := s.inner.Reduce(float64(0), func(acc float64, v N) float64 {
-		count++
-		return acc + float64(v)
+	sumCount := s.inner.Reduce(adt.PairOf(float64(0), 0), func(acc adt.Pair[float64, int], v N) adt.Pair[float64, int] {
+		return adt.PairOf(acc.First()+float64(v), acc.Second()+1)
 	})
+	sum, count := sumCount.Unpack()
 	if count == 0 {
 		return adt.None[float64]()
 	}
-	return adt.Some(total / float64(count))
+	return adt.Some(sum / float64(count))
 }
 
 func (s NumberSeq[N]) Min() adt.Option[N] {
