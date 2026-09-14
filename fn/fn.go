@@ -45,6 +45,16 @@ type HasThird[C any] interface {
 	Third() C
 }
 
+// HasKey represents any value that exposes a Key() method returning type K.
+type HasKey[K any] interface {
+	Key() K
+}
+
+// HasValue represents any value that exposes a Value() method returning type V.
+type HasValue[V any] interface {
+	Value() V
+}
+
 // First extracts the first component from any value implementing HasFirst (e.g. adt.Pair, adt.Triple).
 func First[A any, T HasFirst[A]](v T) A {
 	return v.First()
@@ -58,6 +68,16 @@ func Second[B any, T HasSecond[B]](v T) B {
 // Third extracts the third component from any value implementing HasThird (e.g. adt.Triple).
 func Third[C any, T HasThird[C]](v T) C {
 	return v.Third()
+}
+
+// Key extracts the key from any value implementing HasKey (e.g. adt.Pair, adt.Keyed).
+func Key[K any, T HasKey[K]](v T) K {
+	return v.Key()
+}
+
+// Value extracts the value from any value implementing HasValue (e.g. adt.Pair, adt.Keyed).
+func Value[V any, T HasValue[V]](v T) V {
+	return v.Value()
 }
 
 // Must returns val if err is nil; otherwise it panics with err.

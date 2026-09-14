@@ -264,7 +264,7 @@ func TestWindow_BatchesIntoFixedChunks(t *testing.T) {
 
 func TestEnumerate_TagsWithPosition(t *testing.T) {
 	got := Enumerate(From([]string{"a", "b", "c"})).Collect()
-	want := []Indexed[string]{{0, "a"}, {1, "b"}, {2, "c"}}
+	want := []Indexed[string]{{Index: 0, Value: "a"}, {Index: 1, Value: "b"}, {Index: 2, Value: "c"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Enumerate().Collect() = %+v, want %+v", got, want)
 	}

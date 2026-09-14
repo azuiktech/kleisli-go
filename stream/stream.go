@@ -350,10 +350,7 @@ func (s Stream[T]) DropWhile(fn func(T) bool) Stream[T] {
 }
 
 // Indexed pairs an element with its position — Enumerate's element type.
-type Indexed[T any] struct {
-	Index int
-	Value T
-}
+type Indexed[T any] = adt.Indexed[T]
 
 // enumerateGatherer is Enumerate's shared engine.
 func enumerateGatherer[T any]() Gatherer[T, int, Indexed[T]] {

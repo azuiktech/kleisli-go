@@ -284,10 +284,7 @@ func Window[T any](p Pipe[T], n int) Pipe[[]T] {
 }
 
 // Indexed pairs an item with its position in whatever Pipe produced it.
-type Indexed[T any] struct {
-	Index int
-	Value T
-}
+type Indexed[T any] = adt.Indexed[T]
 
 // Enumerate tags each item with its position as it's produced. Call this
 // right after From/Go if a later stage (typically Parallel) will
