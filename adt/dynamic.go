@@ -4,29 +4,28 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sync"
 )
 
 var (
-	typeToName = map[reflect.Type]string{}
-	nameToType = map[string]reflect.Type{}
+	typeToName sync.Map
+	nameToType sync.Map
 )
 
 // Register makes T recoverable from an Any under name — call once,
-// typically from an init(), before any Dyn or UnmarshalJSON call: the
-// registry has no locking, the same assumption gob.Register and protobuf's
-// registry make. Register panics on a duplicate name or if the same Go
-// type is registered under a second, different name (which would leave
-// the two maps inconsistent).
+// typically from an init(), before any Dyn or UnmarshalJSON call.
+// Access to the registry is synchronized concurrently via sync.Map.
+// Register panics on a duplicate name or if the same Go type is registered
+// under a second, different name (which would leave the two maps inconsistent).
 func Register[T any](name string) {
-	if _, exists := nameToType[name]; exists {
+	t := reflect.TypeOf(*new(T))
+	if _, loaded := nameToType.LoadOrStore(name, t); loaded {
 		panic(fmt.Sprintf("adt: type name %q already registered", name))
 	}
-	t := reflect.TypeOf(*new(T))
-	if existing, exists := typeToName[t]; exists {
+	if existing, loaded := typeToName.LoadOrStore(t, name); loaded {
+		nameToType.Delete(name)
 		panic(fmt.Sprintf("adt: type %v already registered as %q; cannot also register as %q", t, existing, name))
 	}
-	typeToName[t] = name
-	nameToType[name] = t
 }
 
 // Any holds a value of Registered type, type-erased. Use Dyn to construct.
@@ -43,11 +42,11 @@ func Dyn(v any) Any {
 	if v == nil {
 		return Any{}
 	}
-	name, ok := typeToName[reflect.TypeOf(v)]
+	val, ok := typeToName.Load(reflect.TypeOf(v))
 	if !ok {
 		panic(fmt.Sprintf("adt: type %T not registered", v))
 	}
-	return Any{name: name, value: v}
+	return Any{name: val.(string), value: v}
 }
 
 // Value returns the boxed value, or nil if none was ever set.
@@ -90,10 +89,11 @@ func (d *Any) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return err
 	}
-	t, ok := nameToType[wire.Type]
+	val, ok := nameToType.Load(wire.Type)
 	if !ok {
 		return fmt.Errorf("adt: type name %q not registered", wire.Type)
 	}
+	t, _ := val.(reflect.Type)
 	ptr := reflect.New(t)
 	if err := json.Unmarshal(wire.Value, ptr.Interface()); err != nil {
 		return err
