@@ -37,6 +37,23 @@ func TestFallback(t *testing.T) {
 	}
 }
 
+func TestFallbackGet(t *testing.T) {
+	if fn.FallbackGet(1, nil, func(error) int { return 99 }) != 1 {
+		t.Fatal("FallbackGet without error should return val")
+	}
+	called := false
+	got := fn.FallbackGet(0, errBoom, func(e error) int {
+		called = true
+		if !errors.Is(e, errBoom) {
+			t.Errorf("FallbackGet fn received %v, want errBoom", e)
+		}
+		return 99
+	})
+	if !called || got != 99 {
+		t.Fatalf("FallbackGet with error: want fn called and 99, got called=%v got=%d", called, got)
+	}
+}
+
 func TestCond(t *testing.T) {
 	if fn.Cond(true, "a", "b") != "a" {
 		t.Fatal("Cond(true) should return ifTrue")
@@ -68,6 +85,18 @@ func TestDeref(t *testing.T) {
 	}
 	if fn.Deref[int](nil, 99) != 99 {
 		t.Fatal("Deref nil should return fallback")
+	}
+}
+
+func TestDerefGet(t *testing.T) {
+	v := 7
+	if fn.DerefGet(&v, func() int { return 99 }) != 7 {
+		t.Fatal("DerefGet non-nil should return *ptr")
+	}
+	called := false
+	got := fn.DerefGet[int](nil, func() int { called = true; return 99 })
+	if !called || got != 99 {
+		t.Fatalf("DerefGet nil: want fn called and 99, got called=%v got=%d", called, got)
 	}
 }
 
@@ -238,6 +267,50 @@ func TestBefore(t *testing.T) {
 	}
 }
 
+func TestFindRotatedWithPivot(t *testing.T) {
+	// s rotated at pivot=2: older partition s[2:]=[3,5,7], newer s[:2]=[1,2].
+	s := []int{1, 2, 3, 5, 7}
+	comp := func(a, b int) int { return a - b }
+
+	if pos := fn.FindRotatedWithPivot(s, 2, 5, comp); pos != 3 {
+		t.Fatalf("FindRotatedWithPivot found in older partition: want 3, got %d", pos)
+	}
+	if pos := fn.FindRotatedWithPivot(s, 2, 1, comp); pos != 0 {
+		t.Fatalf("FindRotatedWithPivot found in newer partition: want 0, got %d", pos)
+	}
+	if pos := fn.FindRotatedWithPivot(s, 2, 99, comp); pos != len(s) {
+		t.Fatalf("FindRotatedWithPivot not found: want %d, got %d", len(s), pos)
+	}
+}
+
+func TestAfterWithPivot(t *testing.T) {
+	s := []int{1, 2, 3, 5, 7} // pivot=2: older s[2:]=[3,5,7], newer s[:2]=[1,2]
+
+	a, b := fn.AfterWithPivot(s, 3, 2) // after value 5 (physical index 3)
+	if len(a) != 1 || a[0] != 7 || len(b) != 2 || b[0] != 1 || b[1] != 2 {
+		t.Fatalf("AfterWithPivot: unexpected a=%v b=%v", a, b)
+	}
+
+	a2, b2 := fn.AfterWithPivot(s, 0, 2) // after value 1 (physical index 0, wraps)
+	if len(a2) != 1 || a2[0] != 2 || b2 != nil {
+		t.Fatalf("AfterWithPivot wraparound: unexpected a=%v b=%v", a2, b2)
+	}
+}
+
+func TestBeforeWithPivot(t *testing.T) {
+	s := []int{1, 2, 3, 5, 7} // pivot=2: older s[2:]=[3,5,7], newer s[:2]=[1,2]
+
+	a, b := fn.BeforeWithPivot(s, 3, 2) // before value 5 (physical index 3)
+	if len(a) != 1 || a[0] != 3 || b != nil {
+		t.Fatalf("BeforeWithPivot: unexpected a=%v b=%v", a, b)
+	}
+
+	a2, b2 := fn.BeforeWithPivot(s, 0, 2) // before value 1 (physical index 0, wraps)
+	if len(a2) != 3 || a2[0] != 3 || a2[2] != 7 || b2 != nil {
+		t.Fatalf("BeforeWithPivot wraparound: unexpected a=%v b=%v", a2, b2)
+	}
+}
+
 // ── In / NotIn / Constant ─────────────────────────────────────────────────────
 
 func TestIn(t *testing.T) {
@@ -281,6 +354,108 @@ func TestNotIn(t *testing.T) {
 	if !notBlocked("active") {
 		t.Fatal("NotIn should return true for active")
 	}
+}
+
+// ── Predicate combinators ─────────────────────────────────────────────────────
+
+func TestNot(t *testing.T) {
+	isEven := func(n int) bool { return n%2 == 0 }
+	isOdd := fn.Not(isEven)
+	if isOdd(4) {
+		t.Fatal("Not(isEven)(4) should be false")
+	}
+	if !isOdd(3) {
+		t.Fatal("Not(isEven)(3) should be true")
+	}
+}
+
+func TestAnd(t *testing.T) {
+	positive := func(n int) bool { return n > 0 }
+	even := func(n int) bool { return n%2 == 0 }
+	positiveEven := fn.And(positive, even)
+
+	if !positiveEven(4) {
+		t.Fatal("And(positive, even)(4) should be true")
+	}
+	if positiveEven(-4) {
+		t.Fatal("And(positive, even)(-4) should be false")
+	}
+	if positiveEven(3) {
+		t.Fatal("And(positive, even)(3) should be false")
+	}
+	if !fn.And[int]()(42) {
+		t.Fatal("And() with no predicates should be vacuously true")
+	}
+}
+
+func TestOr(t *testing.T) {
+	negative := func(n int) bool { return n < 0 }
+	big := func(n int) bool { return n > 100 }
+	negativeOrBig := fn.Or(negative, big)
+
+	if !negativeOrBig(-1) {
+		t.Fatal("Or(negative, big)(-1) should be true")
+	}
+	if !negativeOrBig(200) {
+		t.Fatal("Or(negative, big)(200) should be true")
+	}
+	if negativeOrBig(5) {
+		t.Fatal("Or(negative, big)(5) should be false")
+	}
+	if fn.Or[int]()(42) {
+		t.Fatal("Or() with no predicates should be vacuously false")
+	}
+}
+
+func TestNoneOf(t *testing.T) {
+	isA := fn.EqualTo("a")
+	isB := fn.EqualTo("b")
+	noneOfAB := fn.NoneOf(isA, isB)
+
+	if !noneOfAB("c") {
+		t.Fatal(`NoneOf(isA, isB)("c") should be true`)
+	}
+	if noneOfAB("a") {
+		t.Fatal(`NoneOf(isA, isB)("a") should be false`)
+	}
+	if noneOfAB("b") {
+		t.Fatal(`NoneOf(isA, isB)("b") should be false`)
+	}
+}
+
+// ── Comparison predicates ─────────────────────────────────────────────────────
+
+func TestComparisonPredicates(t *testing.T) {
+	t.Run("EqualTo", func(t *testing.T) {
+		if !fn.EqualTo(5)(5) || fn.EqualTo(5)(6) {
+			t.Fatal("EqualTo(5) should match only 5")
+		}
+	})
+	t.Run("NotEqualTo", func(t *testing.T) {
+		if !fn.NotEqualTo(5)(6) || fn.NotEqualTo(5)(5) {
+			t.Fatal("NotEqualTo(5) should match everything but 5")
+		}
+	})
+	t.Run("LessThan", func(t *testing.T) {
+		if !fn.LessThan(5)(4) || fn.LessThan(5)(5) {
+			t.Fatal("LessThan(5) should match 4 but not 5")
+		}
+	})
+	t.Run("LessThanOrEqual", func(t *testing.T) {
+		if !fn.LessThanOrEqual(5)(5) || fn.LessThanOrEqual(5)(6) {
+			t.Fatal("LessThanOrEqual(5) should match 5 but not 6")
+		}
+	})
+	t.Run("GreaterThan", func(t *testing.T) {
+		if !fn.GreaterThan(5)(6) || fn.GreaterThan(5)(5) {
+			t.Fatal("GreaterThan(5) should match 6 but not 5")
+		}
+	})
+	t.Run("GreaterThanOrEqual", func(t *testing.T) {
+		if !fn.GreaterThanOrEqual(5)(5) || fn.GreaterThanOrEqual(5)(4) {
+			t.Fatal("GreaterThanOrEqual(5) should match 5 but not 4")
+		}
+	})
 }
 
 func TestConstant(t *testing.T) {

@@ -92,6 +92,18 @@ func ParseFloat32(s string) adt.Result[float32] {
 	return adt.From(float32(v), err)
 }
 
+// parseSigned parses s as a bitSize-bit signed integer and narrows it to N.
+func parseSigned[N Number](s string, bitSize int) adt.Result[N] {
+	v, err := strconv.ParseInt(s, 10, bitSize)
+	return adt.From(N(v), err)
+}
+
+// parseUnsigned parses s as a bitSize-bit unsigned integer and narrows it to N.
+func parseUnsigned[N Number](s string, bitSize int) adt.Result[N] {
+	v, err := strconv.ParseUint(s, 10, bitSize)
+	return adt.From(N(v), err)
+}
+
 // Parse parses s into any numeric type N with bit-size range enforcement.
 func Parse[N Number](s string) adt.Result[N] {
 	var zero N
@@ -99,27 +111,21 @@ func Parse[N Number](s string) adt.Result[N] {
 	case int:
 		return ParseInt(s).Map(func(v int) N { return N(v) })
 	case int8:
-		v, err := strconv.ParseInt(s, 10, 8)
-		return adt.From(N(v), err)
+		return parseSigned[N](s, 8)
 	case int16:
-		v, err := strconv.ParseInt(s, 10, 16)
-		return adt.From(N(v), err)
+		return parseSigned[N](s, 16)
 	case int32:
-		v, err := strconv.ParseInt(s, 10, 32)
-		return adt.From(N(v), err)
+		return parseSigned[N](s, 32)
 	case int64:
 		return ParseInt64(s).Map(func(v int64) N { return N(v) })
 	case uint:
 		return ParseUint(s).Map(func(v uint) N { return N(v) })
 	case uint8:
-		v, err := strconv.ParseUint(s, 10, 8)
-		return adt.From(N(v), err)
+		return parseUnsigned[N](s, 8)
 	case uint16:
-		v, err := strconv.ParseUint(s, 10, 16)
-		return adt.From(N(v), err)
+		return parseUnsigned[N](s, 16)
 	case uint32:
-		v, err := strconv.ParseUint(s, 10, 32)
-		return adt.From(N(v), err)
+		return parseUnsigned[N](s, 32)
 	case uint64:
 		return ParseUint64(s).Map(func(v uint64) N { return N(v) })
 	case float32:

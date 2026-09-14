@@ -321,6 +321,51 @@ func TestSet_Algebra(t *testing.T) {
 	})
 }
 
+func TestSet_AlgebraWithEmptyAndZeroValue(t *testing.T) {
+	a := ds.NewSet(1, 2, 3)
+	var zero ds.Set[int]
+	empty := ds.NewSet[int]()
+
+	t.Run("Union with zero-value and empty", func(t *testing.T) {
+		if u := zero.Union(a); !u.Equal(a) {
+			t.Fatalf("zero.Union(a) want equal to a, got %v", u.ToSlice())
+		}
+		if u := a.Union(zero); !u.Equal(a) {
+			t.Fatalf("a.Union(zero) want equal to a, got %v", u.ToSlice())
+		}
+		if u := zero.Union(empty); !u.Empty() {
+			t.Fatalf("zero.Union(empty) want empty, got %v", u.ToSlice())
+		}
+	})
+
+	t.Run("Intersect with zero-value and empty", func(t *testing.T) {
+		if i := zero.Intersect(a); !i.Empty() {
+			t.Fatalf("zero.Intersect(a) want empty, got %v", i.ToSlice())
+		}
+		if i := a.Intersect(zero); !i.Empty() {
+			t.Fatalf("a.Intersect(zero) want empty, got %v", i.ToSlice())
+		}
+	})
+
+	t.Run("Diff with zero-value and empty", func(t *testing.T) {
+		if d := zero.Diff(a); !d.Empty() {
+			t.Fatalf("zero.Diff(a) want empty, got %v", d.ToSlice())
+		}
+		if d := a.Diff(zero); !d.Equal(a) {
+			t.Fatalf("a.Diff(zero) want equal to a, got %v", d.ToSlice())
+		}
+	})
+
+	t.Run("SymmetricDiff with zero-value and empty", func(t *testing.T) {
+		if sd := zero.SymmetricDiff(a); !sd.Equal(a) {
+			t.Fatalf("zero.SymmetricDiff(a) want equal to a, got %v", sd.ToSlice())
+		}
+		if sd := a.SymmetricDiff(zero); !sd.Equal(a) {
+			t.Fatalf("a.SymmetricDiff(zero) want equal to a, got %v", sd.ToSlice())
+		}
+	})
+}
+
 func TestSet_IteratorAndStreamIntegration(t *testing.T) {
 	s := ds.NewSet(10, 20, 30)
 

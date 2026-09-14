@@ -265,25 +265,35 @@ func NewTable[V any, PK comparable](pk Unique[V, PK], secondary ...Index[V]) *Ta
 	return t
 }
 
+// canInsertAll reports whether v satisfies the primary key and every secondary
+// unique index constraint.
+func (t *Table[V]) canInsertAll(v *V) bool {
+	return t.main.canInsert(v) && stream.Of(t.secondary).AllOf(func(idx internalIndex[V]) bool {
+		return idx.canInsert(v)
+	})
+}
+
+// insertAll adds v to the main table and every secondary index.
+func (t *Table[V]) insertAll(v *V) {
+	t.main.insert(v)
+	stream.Of(t.secondary).ForEach(func(idx internalIndex[V]) {
+		idx.insert(v)
+	})
+}
+
+// deleteAll removes v from the main table and every secondary index.
+func (t *Table[V]) deleteAll(v *V) {
+	t.main.delete(v)
+	stream.Of(t.secondary).ForEach(func(idx internalIndex[V]) {
+		idx.delete(v)
+	})
+}
+
 // Insert adds a record to the table, atomically updating the main table and all secondary indexes.
 // Returns false if the primary key or any secondary unique index constraint is violated.
 func (t *Table[V]) Insert(v *V) bool {
-	return adt.Opt(v).Filter(func(v *V) bool {
-		// Validate main table primary key uniqueness
-		if !t.main.canInsert(v) {
-			return false
-		}
-		// Validate all secondary unique indexes
-		return stream.Of(t.secondary).AllOf(func(idx internalIndex[V]) bool {
-			return idx.canInsert(v)
-		})
-	}).Map(func(v *V) bool {
-		// Insert into main table (primary key)
-		t.main.insert(v)
-		// Insert into all secondary indexes
-		stream.Of(t.secondary).ForEach(func(idx internalIndex[V]) {
-			idx.insert(v)
-		})
+	return adt.Opt(v).Filter(t.canInsertAll).Map(func(v *V) bool {
+		t.insertAll(v)
 		return true
 	}).OrElse(false)
 }
@@ -294,10 +304,7 @@ func (t *Table[V]) Delete(v *V) bool {
 	return adt.Opt(v).Filter(func(v *V) bool {
 		return t.main.contains(v)
 	}).Map(func(v *V) bool {
-		t.main.delete(v)
-		stream.Of(t.secondary).ForEach(func(idx internalIndex[V]) {
-			idx.delete(v)
-		})
+		t.deleteAll(v)
 		return true
 	}).OrElse(false)
 }
@@ -325,32 +332,18 @@ func (t *Table[V]) Update(v *V, mutate func(*V)) bool {
 	if v == nil || mutate == nil || !t.main.contains(v) {
 		return false
 	}
-	t.main.delete(v)
-	stream.Of(t.secondary).ForEach(func(idx internalIndex[V]) {
-		idx.delete(v)
-	})
+	t.deleteAll(v)
 
 	oldVal := *v
 	mutate(v)
 
-	valid := t.main.canInsert(v) && stream.Of(t.secondary).AllOf(func(idx internalIndex[V]) bool {
-		return idx.canInsert(v)
-	})
-
-	if !valid {
-		*v = oldVal
-		t.main.insert(v)
-		stream.Of(t.secondary).ForEach(func(idx internalIndex[V]) {
-			idx.insert(v)
-		})
-		return false
+	if t.canInsertAll(v) {
+		t.insertAll(v)
+		return true
 	}
-
-	t.main.insert(v)
-	stream.Of(t.secondary).ForEach(func(idx internalIndex[V]) {
-		idx.insert(v)
-	})
-	return true
+	*v = oldVal
+	t.insertAll(v)
+	return false
 }
 
 // From binds the unique index to the given table, returning a type-safe UniqueView.

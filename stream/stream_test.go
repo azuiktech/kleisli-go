@@ -524,3 +524,104 @@ func TestStream_All_RangeOverFunc(t *testing.T) {
 		t.Errorf("for v := range s.All() = %v, want [a b c]", collected)
 	}
 }
+
+func TestToMapBy_CollisionMergePolicies(t *testing.T) {
+	type pair struct {
+		Key string
+		Val int
+	}
+	items := []pair{{"a", 1}, {"b", 2}, {"a", 3}}
+	keyVal := func(p pair) (string, int) { return p.Key, p.Val }
+
+	if got := Of(items).ToMapBy(keyVal, KeepFirst); got["a"] != 1 {
+		t.Errorf("ToMapBy(KeepFirst)[a] = %d, want 1", got["a"])
+	}
+	if got := Of(items).ToMapBy(keyVal, KeepLast); got["a"] != 3 {
+		t.Errorf("ToMapBy(KeepLast)[a] = %d, want 3", got["a"])
+	}
+	sum := func(existing, incoming int) int { return existing + incoming }
+	if got := Of(items).ToMapBy(keyVal, sum); got["a"] != 4 {
+		t.Errorf("ToMapBy(sum)[a] = %d, want 4", got["a"])
+	}
+}
+
+func TestGroupBy(t *testing.T) {
+	got := Of([]int{1, 2, 3, 4, 5, 6}).GroupBy(func(n int) string {
+		if n%2 == 0 {
+			return "even"
+		}
+		return "odd"
+	})
+	if want := []int{1, 3, 5}; !reflect.DeepEqual(got["odd"], want) {
+		t.Errorf("GroupBy()[odd] = %v, want %v", got["odd"], want)
+	}
+	if want := []int{2, 4, 6}; !reflect.DeepEqual(got["even"], want) {
+		t.Errorf("GroupBy()[even] = %v, want %v", got["even"], want)
+	}
+}
+
+func TestMapWhile_StopsAtFirstNone(t *testing.T) {
+	got := Of([]int{1, 2, 3, -1, 4, 5}).
+		MapWhile(func(n int) adt.Option[int] {
+			if n < 0 {
+				return adt.None[int]()
+			}
+			return adt.Some(n * 10)
+		}).
+		Collect()
+	want := []int{10, 20, 30}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("MapWhile() = %v, want %v (elements after the stop must be excluded)", got, want)
+	}
+}
+
+func TestScanWhile_StopsAtFirstNone(t *testing.T) {
+	got := Of([]int{1, 2, 3, -1, 4}).
+		ScanWhile(0, func(acc, n int) (int, adt.Option[int]) {
+			if n < 0 {
+				return acc, adt.None[int]()
+			}
+			acc += n
+			return acc, adt.Some(acc)
+		}).
+		Collect()
+	want := []int{1, 3, 6}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ScanWhile() = %v, want %v (elements after the stop must be excluded)", got, want)
+	}
+}
+
+func TestMinByCompare(t *testing.T) {
+	less := func(a, b int) int { return a - b }
+
+	if got := Of([]int{5, 3, 8, 1, 9}).MinByCompare(less); got.IsNone() || got.MustGet() != 1 {
+		t.Errorf("MinByCompare() = %v, want Some(1)", got)
+	}
+	if got := Of([]int{}).MinByCompare(less); got.IsSome() {
+		t.Errorf("MinByCompare() on empty Stream = %v, want None", got)
+	}
+}
+
+func TestMinByCompare_TiesKeepFirst(t *testing.T) {
+	type item struct {
+		Name string
+		N    int
+	}
+	less := func(a, b item) int { return a.N - b.N }
+	got := Of([]item{{"a", 1}, {"b", 1}, {"c", 2}}).MinByCompare(less)
+	if got.IsNone() || got.MustGet().Name != "a" {
+		t.Errorf("MinByCompare() tie = %v, want Some(a) (first element must win)", got)
+	}
+}
+
+func TestReverse(t *testing.T) {
+	if got := Of([]int{1, 2, 3}).Reverse().Collect(); !reflect.DeepEqual(got, []int{3, 2, 1}) {
+		t.Errorf("Reverse() = %v, want [3 2 1]", got)
+	}
+	if got := Of([]int{}).Reverse().Collect(); len(got) != 0 {
+		t.Errorf("Reverse() on empty Stream = %v, want []", got)
+	}
+	if got := Of([]int{1}).Reverse().Collect(); !reflect.DeepEqual(got, []int{1}) {
+		t.Errorf("Reverse() on single-element Stream = %v, want [1]", got)
+	}
+}

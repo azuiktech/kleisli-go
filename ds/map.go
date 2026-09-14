@@ -63,7 +63,7 @@ func (m Map[K, V]) Put(key K, value V) Map[K, V] {
 // PutIfAbsent inserts value only if key is not already present.
 // Returns the existing or newly inserted value, and true if inserted.
 func (m Map[K, V]) PutIfAbsent(key K, value V) (V, bool) {
-	if existing, ok := m.data[key]; ok {
+	if existing, ok := adt.FromMap(m.data, key).Unwrap(); ok {
 		return existing, false
 	}
 	m.data[key] = value
@@ -98,32 +98,22 @@ func (m Map[K, V]) Clear() Map[K, V] {
 
 // Get returns Some(value) if key is present, or None. Safe on uninitialized Map.
 func (m Map[K, V]) Get(key K) adt.Option[V] {
-	if v, ok := m.data[key]; ok {
-		return adt.Some(v)
-	}
-	return adt.None[V]()
+	return adt.FromMap(m.data, key)
 }
 
 // GetOr returns the value for key, or fallback if absent.
 func (m Map[K, V]) GetOr(key K, fallback V) V {
-	if v, ok := m.data[key]; ok {
-		return v
-	}
-	return fallback
+	return adt.FromMap(m.data, key).OrElse(fallback)
 }
 
 // GetOrElse returns the value for key, or calls fn() if absent.
 func (m Map[K, V]) GetOrElse(key K, fn func() V) V {
-	if v, ok := m.data[key]; ok {
-		return v
-	}
-	return fn()
+	return adt.FromMap(m.data, key).OrElseGet(fn)
 }
 
 // Contains reports whether key is present in m.
 func (m Map[K, V]) Contains(key K) bool {
-	_, ok := m.data[key]
-	return ok
+	return adt.FromMap(m.data, key).IsSome()
 }
 
 // Len returns the count of entries in m (0 if uninitialized).

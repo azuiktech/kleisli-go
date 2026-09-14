@@ -2,6 +2,7 @@ package async
 
 import (
 	"context"
+	"iter"
 	"reflect"
 	"sort"
 	"sync"
@@ -102,12 +103,121 @@ func TestFork_EveryBranchSeesEveryItem(t *testing.T) {
 	}
 }
 
+func TestFork_UnreadBranchStallsSharedPump(t *testing.T) {
+	// Fork's doc: every item is sent to branch 0, then branch 1, in order,
+	// via one shared pump. A branch nobody reads therefore blocks that
+	// pump — and every sibling, including branches that are being read —
+	// from making further progress.
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+
+	branches := FromContext(ctx, []int{1, 2, 3}).Fork(2)
+	if len(branches) != 2 {
+		t.Fatalf("Fork(2) returned %d branches, want 2", len(branches))
+	}
+
+	firstItem := make(chan int, 1)
+	go branches[0].Each(func(n int) { firstItem <- n })
+
+	select {
+	case n := <-firstItem:
+		if n != 1 {
+			t.Fatalf("branch 0 first item = %d, want 1", n)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("branch 0 never received its first item")
+	}
+
+	// Branch 1 is never read. The pump must now be stuck delivering item
+	// 1 to branch 1, so branch 0 must never see a second item either.
+	select {
+	case n := <-firstItem:
+		t.Fatalf("branch 0 received a second item (%d); the unread branch 1 should have stalled the shared pump", n)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
 func TestMerge_CombinesEveryItemFromEverySource(t *testing.T) {
 	got := Merge(From([]int{1, 2}), From([]int{3, 4}), From([]int{5})).Collect()
 	sort.Ints(got)
 	want := []int{1, 2, 3, 4, 5}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Merge().Collect() (sorted) = %v, want %v", got, want)
+	}
+}
+
+func naturalNumbers() iter.Seq[int] {
+	return func(yield func(int) bool) {
+		for i := 0; ; i++ {
+			if !yield(i) {
+				return
+			}
+		}
+	}
+}
+
+func TestMerge_OnlyFirstPipesContextGovernsCancellation(t *testing.T) {
+	// Merge's doc: the first pipe's context governs all merged goroutines
+	// — cancelling any other source pipe's own context must not affect
+	// the merged output, only cancelling pipes[0]'s context does.
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	defer cancel1()
+	defer cancel2()
+
+	p1 := FromIterContext(ctx1, naturalNumbers())
+	p2 := FromIterContext(ctx2, naturalNumbers())
+	merged := Merge(p1, p2)
+
+	// A persistent reader is required: Each's callback would otherwise
+	// block a send once the test stops actively consuming, which would
+	// mask the very termination this test checks for. progress carries a
+	// non-blocking heartbeat for each item actually consumed.
+	received := make(chan int)
+	progress := make(chan struct{}, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		merged.Each(func(n int) { received <- n })
+	}()
+	go func() {
+		for range received {
+			select {
+			case progress <- struct{}{}:
+			default:
+			}
+		}
+	}()
+
+	awaitProgress := func(timeout time.Duration) bool {
+		select {
+		case <-progress:
+			return true
+		case <-time.After(timeout):
+			return false
+		}
+	}
+
+	for i := 0; i < 4; i++ {
+		if !awaitProgress(time.Second) {
+			t.Fatal("merged pipe produced no items before any cancellation")
+		}
+	}
+
+	cancel2() // cancel a non-first pipe's own context
+
+	for i := 0; i < 4; i++ {
+		if !awaitProgress(time.Second) {
+			t.Fatal("merged output stalled after cancelling a non-first pipe's context")
+		}
+	}
+
+	cancel1() // cancel pipes[0]'s context — the one Merge actually uses
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("merged output did not terminate after cancelling pipes[0]'s context")
 	}
 }
 

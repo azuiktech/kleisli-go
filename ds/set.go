@@ -82,8 +82,7 @@ func (s Set[T]) Clear() Set[T] {
 
 // Contains reports whether item is present in the set.
 func (s Set[T]) Contains(item T) bool {
-	_, ok := s.data[item]
-	return ok
+	return adt.FromMap(s.data, item).IsSome()
 }
 
 // Len returns the count of elements in s (0 if s is empty or uninitialized).
