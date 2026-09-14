@@ -48,16 +48,16 @@ fail := adt.Err[int](errors.New("not found"))
 | `Expect(msg)` | `func (r Result[T]) Expect(msg string) T` | Returns `val` on success. Panics formatted as `"<msg>: <err>"` if failure. |
 | `OrElse(fallback)` | `func (r Result[T]) OrElse(fallback T) T` | Returns `val` on success, or `fallback` on failure. |
 | `OrElseGet(fn)` | `func (r Result[T]) OrElseGet(fn func(error) T) T` | Returns `val` on success, or computes fallback via `fn(err)`. |
-| `Or(other)` | `func (r Result[T]) Or(other Result[T]) Result[T]` | Returns `r` if success, otherwise returns `other`. |
+| `Or(fallback)` | `func (r Result[T]) Or(fallback Result[T]) Result[T]` | Returns `r` if success, otherwise returns `fallback`. |
 
 ### Monadic Chaining & Transformation
 
 | Method | Signature | Description |
 |---|---|---|
 | `Map[U](fn)` | `func (r Result[T]) Map[U any](fn func(T) U) Result[U]` | Transforms success value `T -> U`. Preserves error if failed. |
-| `Map0[U](fn)` | `func (r Result[T]) Map0[U any](fn func(T) (U, error)) Result[U]` | Transforms success with a fallible Go function `func(T) (U, error)`. |
+| `Map0[U](fn)` | `func (r Result[T]) Map0[U any](fn func() U) Result[U]` | Maps to a new type via a niladic `fn`, ignoring the current success value. Errors propagate unchanged. |
 | `FlatMap[U](fn)`| `func (r Result[T]) FlatMap[U any](fn func(T) Result[U]) Result[U]` | Chains sequential fallible operation returning `Result[U]`. |
-| `Then[U](fn)` | `func (r Result[T]) Then[U any](fn func(T) (U, error)) Result[U]` | Alias for `Map0`. Bridges seamlessly with Go functions returning `(U, error)`. |
+| `Then[U](fn)` | `func (r Result[T]) Then[U any](fn func(T) (U, error)) Result[U]` | Chains a Go-idiomatic `(U, error)`-returning function. |
 | `Recover(fn)` | `func (r Result[T]) Recover(fn func(error) Result[T]) Result[T]` | Recovers from an error by returning an alternative `Result[T]`. |
 | `Fold[U](onOK, onErr)` | `func (r Result[T]) Fold[U any](onOK func(T) U, onErr func(error) U) U` | Exhaustively unifies both branches into a single type `U`. |
 
@@ -87,11 +87,11 @@ dtoResult.Fold(renderSuccessJSON, renderErrorJSON)
 |---|---|---|
 | `Successes[T]` | `func Successes[T any](results []Result[T]) []T` | Filters slice to only success values. |
 | `Failures[T]` | `func Failures[T any](results []Result[T]) []error` | Filters slice to only error values. |
-| `Results.Zip2` | `func (resultsNamespace) Zip2[A, B, U any](ra Result[A], rb Result[B], fn func(A, B) U) Result[U]` | Combines two results with `fn` if both succeed. |
-| `Results.Zip3` | `func (resultsNamespace) Zip3[A, B, C, U any](ra Result[A], rb Result[B], rc Result[C], fn func(A, B, C) U) Result[U]` | Combines three results with `fn` if all succeed. |
-| `Results.Flatten` | `func (resultsNamespace) Flatten[T any](r Result[Result[T]]) Result[T]` | Flattens nested `Result[Result[T]]` to `Result[T]`. |
-| `Results.Contains` | `func (resultsNamespace) Contains[T comparable](r Result[T], val T) bool` | Reports whether result is OK and equals `val`. |
-| `Results.Sequence` | `func (resultsNamespace) Sequence[T any](results []Result[T]) Result[[]T]` | Inverts `[]Result[T]` to `Result[[]T]`. Fails fast on first error. |
+| `Results.Zip2` | `func (resultNS) Zip2[A, B, U any](ra Result[A], rb Result[B], fn func(A, B) U) Result[U]` | Combines two results with `fn` if both succeed. |
+| `Results.Zip3` | `func (resultNS) Zip3[A, B, C, U any](ra Result[A], rb Result[B], rc Result[C], fn func(A, B, C) U) Result[U]` | Combines three results with `fn` if all succeed. |
+| `Results.Flatten` | `func (resultNS) Flatten[T any](r Result[Result[T]]) Result[T]` | Flattens nested `Result[Result[T]]` to `Result[T]`. |
+| `Results.Contains` | `func (resultNS) Contains[T comparable](r Result[T], target T) bool` | Reports whether result is OK and equals `target`. |
+| `Results.Sequence` | `func (resultNS) Sequence[T any](results []Result[T]) Result[[]T]` | Inverts `[]Result[T]` to `Result[[]T]`. Fails fast on first error. |
 
 ### JSON Serialization
 
@@ -138,7 +138,7 @@ type Option[T any] struct { /* unexported fields */ }
 | `Expect(msg)` | `func (o Option[T]) Expect(msg string) T` | Returns `val` if present; panics with `msg` if `None`. |
 | `OrElse(fallback)` | `func (o Option[T]) OrElse(fallback T) T` | Returns `val` if present, or `fallback`. |
 | `OrElseGet(fn)` | `func (o Option[T]) OrElseGet(fn func() T) T` | Returns `val` if present, or evaluates `fn()`. |
-| `Or(other)` | `func (o Option[T]) Or(other Option[T]) Option[T]` | Returns `o` if `Some`, otherwise returns `other`. |
+| `Or(fallback)` | `func (o Option[T]) Or(fallback Option[T]) Option[T]` | Returns `o` if `Some`, otherwise returns `fallback`. |
 | `ToPtr()` | `func (o Option[T]) ToPtr() *T` | Returns pointer to value, or `nil` if absent. |
 | `ToSlice()` | `func (o Option[T]) ToSlice() []T` | Returns single-element slice `[]T{val}` if present, or empty slice `[]T{}`. |
 | `All()` | `func (o Option[T]) All() iter.Seq[T]` | Returns iterator yielding the value once if present, or zero times if absent. |
@@ -150,9 +150,9 @@ type Option[T any] struct { /* unexported fields */ }
 | Method | Signature | Description |
 |---|---|---|
 | `Map[U](fn)` | `func (o Option[T]) Map[U any](fn func(T) U) Option[U]` | Transforms present value `T -> U`. |
-| `Map0[U](fn)` | `func (o Option[T]) Map0[U any](fn func(T) (U, bool)) Option[U]` | Transforms using a fallible `(U, bool)` function. |
+| `Map0[U](fn)` | `func (o Option[T]) Map0[U any](fn func() U) Option[U]` | Maps to a new type via a niladic `fn`, ignoring the current value. Absence propagates unchanged. |
 | `FlatMap[U](fn)` | `func (o Option[T]) FlatMap[U any](fn func(T) Option[U]) Option[U]` | Chains sequential operation returning `Option[U]`. |
-| `Then[U](fn)` | `func (o Option[T]) Then[U any](fn func(T) (U, bool)) Option[U]` | Alias for `Map0`. |
+| `Then[U](fn)` | `func (o Option[T]) Then[U any](fn func(T) (U, bool)) Option[U]` | Chains a Go-idiomatic `(U, bool)`-returning function. |
 | `Filter(fn)` | `func (o Option[T]) Filter(fn func(T) bool) Option[T]` | Keeps value only if `fn(val)` is true, otherwise `None`. |
 | `Tap(fn)` | `func (o Option[T]) Tap(fn func(T)) Option[T]` | Invokes side-effect if present; returns `o` unchanged. |
 | `TapNone(fn)` | `func (o Option[T]) TapNone(fn func()) Option[T]` | Invokes side-effect if absent; returns `o` unchanged. |
@@ -162,12 +162,12 @@ type Option[T any] struct { /* unexported fields */ }
 
 | Function | Signature | Description |
 |---|---|---|
-| `Somes[T]` | `func Somes[T any](opts []Option[T]) []T` | Extracts only present values from a slice of options. |
-| `Options.Zip2` | `func (optionsNamespace) Zip2[A, B, U any](oa Option[A], ob Option[B], fn func(A, B) U) Option[U]` | Combines two options if both are present. |
-| `Options.Zip3` | `func (optionsNamespace) Zip3[A, B, C, U any](oa Option[A], ob Option[B], oc Option[C], fn func(A, B, C) U) Option[U]` | Combines three options if all are present. |
-| `Options.Flatten` | `func (optionsNamespace) Flatten[T any](o Option[Option[T]]) Option[T]` | Flattens nested `Option[Option[T]]` to `Option[T]`. |
-| `Options.Contains` | `func (optionsNamespace) Contains[T comparable](o Option[T], val T) bool` | Reports whether option is `Some` and equals `val`. |
-| `Options.Sequence` | `func (optionsNamespace) Sequence[T any](opts []Option[T]) Option[[]T]` | Inverts `[]Option[T]` to `Option[[]T]`. Returns `None` if any element is `None`. |
+| `Somes[T]` | `func Somes[T any](options []Option[T]) []T` | Extracts only present values from a slice of options. |
+| `Options.Zip2` | `func (optionNS) Zip2[A, B, U any](oa Option[A], ob Option[B], fn func(A, B) U) Option[U]` | Combines two options if both are present. |
+| `Options.Zip3` | `func (optionNS) Zip3[A, B, C, U any](oa Option[A], ob Option[B], oc Option[C], fn func(A, B, C) U) Option[U]` | Combines three options if all are present. |
+| `Options.Flatten` | `func (optionNS) Flatten[T any](o Option[Option[T]]) Option[T]` | Flattens nested `Option[Option[T]]` to `Option[T]`. |
+| `Options.Contains` | `func (optionNS) Contains[T comparable](o Option[T], target T) bool` | Reports whether option is `Some` and equals `target`. |
+| `Options.Sequence` | `func (optionNS) Sequence[T any](options []Option[T]) Option[[]T]` | Inverts `[]Option[T]` to `Option[[]T]`. Returns `None` if any element is `None`. |
 
 ### JSON Serialization
 
@@ -246,7 +246,7 @@ type Any struct { /* unexported fields */ }
 | `Register[T](name)` | `func Register[T any](name string)` | Registers type `T` under a unique string identifier (call in `init()`). |
 | `Dyn(v)` | `func Dyn(v any) Any` | Boxes `v` into an `Any`. Panics if `v`'s concrete type was not registered. |
 | `Value()` | `func (d Any) Value() any` | Returns underlying `any` value. |
-| `As[T](d)` | `func As[T any](d Any) Option[T]` | Extracts boxed value as `T`. Returns `Some(val)` if type matches, else `None`. |
+| `As[T](v)` | `func As[T any](v any) Option[T]` | Extracts `v` as `T`. If `v` is an `Any`, unboxes it first; otherwise asserts directly. `None` if the assertion fails or `v` holds no value. |
 
 ### Dynamic JSON Polymorphism
 
@@ -333,7 +333,7 @@ func parsePort(s string) adt.Result[int] {
 }
 
 func validateHost(host string) adt.Result[string] {
-    return adt.OK(host).Filter(fn.Not(fn.IsSpace)).
+    return adt.Opt(host).Filter(fn.Not(fn.IsSpace)).
         ToResult(errors.New("host cannot be blank"))
 }
 
@@ -374,8 +374,9 @@ func FindManagerPhone(orgChart map[string]Department, deptName string) string {
     return adt.FromMap(orgChart, deptName).
         Map(Department.Manager).
         FlatMap(adt.Opt).
-        Map(Employee.Phone).
+        Map((*Employee).Phone).
         FlatMap(adt.Opt).
+        Map(func(p *string) string { return *p }).
         OrElse("No Direct Line")
 }
 ```
