@@ -22,7 +22,7 @@ import "github.com/azuiktech/kleisli-go/stream"
 | `FromSlice[T]` | `func FromSlice[T any](items []T) Stream[T]` | Counterpart alias of `Of`. |
 | `OfOption[T]` | `func OfOption[T any](o adt.Option[T]) Stream[T]` | Lifts `Option[T]` into a 0 or 1 element stream. |
 | `Empty[T]` | `func Empty[T any]() Stream[T]` | Constructs an empty `Stream[T]`. |
-| `OfMap[K, V]` | `func OfMap[K comparable, V any](m map[K]V) Stream[Pair[K, V]]` | Wraps map key-value pairs into a stream of `Pair[K, V]`. |
+| `OfMap[K, V]` | `func OfMap[K comparable, V any](m map[K]V) Stream[adt.Pair[K, V]]` | Wraps map key-value pairs into a stream of `adt.Pair[K, V]`. Map iteration order is randomized by Go — follow with `SortBy`/`SortByCached` for deterministic output. |
 
 ### Intermediate Transforms
 
@@ -32,12 +32,15 @@ import "github.com/azuiktech/kleisli-go/stream"
 | `Filter(fn)` | `func (s Stream[T]) Filter(fn func(T) bool) Stream[T]` | Retains elements satisfying `fn`. |
 | `Map[U](fn)` | `func (s Stream[T]) Map[U any](fn func(T) U) Stream[U]` | Transforms elements from type `T` to type `U`. |
 | `FlatMap[U](fn)`| `func (s Stream[T]) FlatMap[U any](fn func(T) []U) Stream[U]` | Maps each element to a slice of `U` and concatenates the results. |
+| `FilterMap[U](fn)`| `func (s Stream[T]) FilterMap[U any](fn func(T) (U, bool)) Stream[U]` | Keeps and transforms only the elements for which `fn`'s second return is true — Rust's `filter_map`. |
+| `MapMulti[U](fn)`| `func (s Stream[T]) MapMulti[U any](fn func(item T, emit func(U))) Stream[U]` | `fn` gets each element plus an `emit` callback it can call zero, one, or many times — one primitive covering `Map`/`Filter`/`FilterMap`/`FlatMap`'s shapes without an intermediate slice. Java's `mapMulti`. |
 | `Take(n)` | `func (s Stream[T]) Take(n int) Stream[T]` | Takes the first `n` elements. |
 | `Skip(n)` | `func (s Stream[T]) Skip(n int) Stream[T]` | Skips the first `n` elements. |
 | `TakeWhile(fn)` | `func (s Stream[T]) TakeWhile(fn func(T) bool) Stream[T]` | Takes prefix while `fn` is true. |
 | `DropWhile(fn)` | `func (s Stream[T]) DropWhile(fn func(T) bool) Stream[T]` | Skips prefix while `fn` is true. |
 | `Enumerate[T]` | `func Enumerate[T any](s Stream[T]) Stream[adt.Indexed[T]]` | Indexes items with 0-based positions (`adt.Indexed[T]{Index, Value}`). A free function, not a method, called as `stream.Enumerate(s)`. |
 | `Reverse()` | `func (s Stream[T]) Reverse() Stream[T]` | Reverses slice in-place in the stream. |
+| `DistinctBy[K](fn)` | `func (s Stream[T]) DistinctBy[K comparable](fn func(T) K) Stream[T]` | Keeps only the first element for each key `fn` extracts — works for any `T` since only the key needs to be comparable. |
 
 ### Sorting & Grouping (Slice-Only Operations)
 
@@ -71,15 +74,17 @@ These operations are exclusive to `Stream[T]` because they require inspecting th
 | `MinBy[K](fn)` | `func (s Stream[T]) MinBy[K cmp.Ordered](fn func(T) K) adt.Option[T]` | Returns item with minimal extracted key. |
 | `MaxBy[K](fn)` | `func (s Stream[T]) MaxBy[K cmp.Ordered](fn func(T) K) adt.Option[T]` | Returns item with maximal extracted key. |
 | `MinByCompare(fn)`| `func (s Stream[T]) MinByCompare(fn func(T, T) int) adt.Option[T]` | Finds minimum using custom comparison. `MaxBy` covers the maximum case — there is no `MaxByCompare`. |
+| `MapWhile[U](fn)` | `func (s Stream[T]) MapWhile[U any](fn func(T) adt.Option[U]) Stream[U]` | Maps each element to an `Option[U]`, emitting the unwrapped value and stopping at the first `None` — Rust's `map_while`. Built on the `Gatherer` mechanism (see below). |
+| `ScanWhile[A, U](init, fn)` | `func (s Stream[T]) ScanWhile[A, U any](initial A, fn func(A, T) (A, adt.Option[U])) Stream[U]` | A stateful `MapWhile`: accumulates state while `fn` returns `Some`, stops at the first `None` — Rust's `Iterator::scan`. |
 
 ### Free Functions
 
 | Function | Signature | Description |
 |---|---|---|
-| `Distinct[T]` | `func Distinct[T comparable](s Stream[T]) Stream[T]` | Deduplicates elements preserving first occurrence order. |
-| `DistinctBy[T, K]`| `func DistinctBy[T any, K comparable](s Stream[T], keyFn func(T) K) Stream[T]` | Deduplicates by extracted key `K`. |
-| `Flatten[T]` | `func Flatten[T any](s Stream[Stream[T]]) Stream[T]` | Flattens a nested stream of streams. |
-| `Zip[A, B]` | `func Zip[A, B any](sa Stream[A], sb Stream[B]) Stream[Pair[A, B]]` | Combines two streams into pairs until shorter ends. |
+| `Distinct[T]` | `func Distinct[T comparable](s Stream[T]) Stream[T]` | Deduplicates elements preserving first occurrence order. A free function: `Stream[T]` is declared `T any`, and a method can't narrow that to `comparable`. |
+| `Flatten[T]` | `func Flatten[T any](s Stream[[]T]) Stream[T]` | Collapses a `Stream[[]T]` into a `Stream[T]`, concatenating every inner slice in order. |
+| `Zip[A, B]` | `func Zip[A, B any](sa Stream[A], sb Stream[B]) Stream[adt.Pair[A, B]]` | Pairs elements from two streams positionally, stopping at the shorter one. |
+| `Zip3[A, B, C]` | `func Zip3[A, B, C any](sa Stream[A], sb Stream[B], sc Stream[C]) Stream[adt.Triple[A, B, C]]` | Triples elements from three streams positionally, stopping at the shortest one. |
 
 ```go
 // Direct method references on User:
@@ -111,11 +116,14 @@ usersByCountry := stream.Of(users).
 | `Filter(fn)` | `func (s Seq[T]) Filter(fn func(T) bool) Seq[T]` | Yields only items satisfying predicate. |
 | `Map[U](fn)` | `func (s Seq[T]) Map[U any](fn func(T) U) Seq[U]` | Lazily transforms items from `T` to `U`. |
 | `FlatMap[U](fn)`| `func (s Seq[T]) FlatMap[U any](fn func(T) []U) Seq[U]` | Maps each element to a slice of `U` and flattens the results. |
+| `FilterMap[U](fn)`| `func (s Seq[T]) FilterMap[U any](fn func(T) (U, bool)) Seq[U]` | Keeps and transforms only the elements for which `fn`'s second return is true. |
+| `MapMulti[U](fn)`| `func (s Seq[T]) MapMulti[U any](fn func(item T, emit func(U))) Seq[U]` | `fn` gets each element plus an `emit` callback it can call zero, one, or many times — see `Stream.MapMulti`. |
 | `Take(n)` | `func (s Seq[T]) Take(n int) Seq[T]` | Pulls at most `n` items then stops iterator. |
 | `Skip(n)` | `func (s Seq[T]) Skip(n int) Seq[T]` | Skips first `n` items. |
 | `TakeWhile(fn)` | `func (s Seq[T]) TakeWhile(fn func(T) bool) Seq[T]` | Pulls items while `fn` is true; short-circuits. |
 | `DropWhile(fn)` | `func (s Seq[T]) DropWhile(fn func(T) bool) Seq[T]` | Drops prefix while `fn` is true. |
 | `EnumerateSeq[T]` | `func EnumerateSeq[T any](s Seq[T]) Seq[adt.Indexed[T]]` | Pairs each yielded item with its 0-based index. A free function, called as `stream.EnumerateSeq(s)` — named to avoid shadowing `Stream`'s `Enumerate` in the same package. |
+| `DistinctBy[K](fn)` | `func (s Seq[T]) DistinctBy[K comparable](fn func(T) K) Seq[T]` | Keeps only the first element for each key `fn` extracts. |
 | `Tap(fn)` | `func (s Seq[T]) Tap(fn func(T)) Seq[T]` | Lazily inspects elements as they pass through without draining. |
 | `ForEach(fn)` | `func (s Seq[T]) ForEach(fn func(T))` | Terminal consumer running `fn` on all elements (returns void). |
 | `AnyOf(fn)` | `func (s Seq[T]) AnyOf(fn func(T) bool) bool` | Short-circuits on first `true`. |
@@ -124,6 +132,11 @@ usersByCountry := stream.Of(users).
 | `All()` | `func (s Seq[T]) All() iter.Seq[T]` | Standard range-over-func iterator over sequence elements. |
 | `First(fn)` | `func (s Seq[T]) First(fn func(T) bool) adt.Option[T]` | Returns `Some(first element satisfying fn)`, or `None` — short-circuits, never pulling past the match. |
 | `Reduce[U](init, fn)`| `func (s Seq[T]) Reduce[U any](initial U, fn func(acc U, item T) U) U` | Consumes sequence into accumulator `U`. |
+| `MinBy[K](fn)` | `func (s Seq[T]) MinBy[K cmp.Ordered](fn func(T) K) adt.Option[T]` | Returns item with minimal extracted key, draining the `Seq` fully. |
+| `MaxBy[K](fn)` | `func (s Seq[T]) MaxBy[K cmp.Ordered](fn func(T) K) adt.Option[T]` | Returns item with maximal extracted key, draining the `Seq` fully. |
+| `MinByCompare(fn)`| `func (s Seq[T]) MinByCompare(fn func(T, T) int) adt.Option[T]` | Finds minimum using a raw comparator. |
+| `MapWhile[U](fn)` | `func (s Seq[T]) MapWhile[U any](fn func(T) adt.Option[U]) Seq[U]` | Maps each element to an `Option[U]`, emitting the unwrapped value and stopping at the first `None`. |
+| `ScanWhile[A, U](init, fn)` | `func (s Seq[T]) ScanWhile[A, U any](initial A, fn func(A, T) (A, adt.Option[U])) Seq[U]` | A stateful `MapWhile` that accumulates state, stopping on `None`. |
 | `Collect()` | `func (s Seq[T]) Collect() []T` | Materializes lazy sequence into slice. |
 | `ToMapBy[K, V](fn, merge)`| `func (s Seq[T]) ToMapBy[K comparable, V any](fn func(T) (K, V), merge func(existing, incoming V) V) map[K]V` | Builds a `map[K]V` with explicit collision handling via `merge`. Use `stream.KeepFirst`, `stream.KeepLast`, or a custom combiner. |
 | `ToStream()` | `func (s Seq[T]) ToStream() Stream[T]` | Materializes lazy sequence into eager `Stream[T]`. |
@@ -149,7 +162,48 @@ found := stream.FromSeq(hugeGenerator).
 
 ---
 
-## 3. Numeric Pipelines
+## 3. Gatherers — Custom Stateful Intermediate Operations
+
+A `Gatherer[T, A, U]` is a reusable, named, custom intermediate operation — the sanctioned place for a stateful loop to live when nothing built-in fits (Java 24's `Gatherers` concept). `WindowFixed`, `WindowSliding`, `Scan`, and `Fold` below are pre-built `Gatherer` values; `MapWhile`/`ScanWhile` (the convenience methods documented above, on both `Stream` and `Seq`) are themselves implemented on top of the equivalent-named `Gatherer` here.
+
+```go
+type Gatherer[T, A, U any] struct {
+    Init      func() A
+    Integrate func(state A, item T, emit func(U)) (next A, cont bool)
+    Finish    func(state A, emit func(U)) // optional; nil means nothing to flush
+}
+```
+
+| Method | Signature | Description |
+|---|---|---|
+| `s.Gather(g)` | `func (s Stream[T]) Gather[A, U any](g Gatherer[T, A, U]) Stream[U]` | Runs `g` over the stream. |
+| `s.Gather(g)` | `func (s Seq[T]) Gather[A, U any](g Gatherer[T, A, U]) Seq[U]` | Runs `g` over the sequence — the same engine `Stream.Gather` uses. |
+
+| Function | Signature | Description |
+|---|---|---|
+| `WindowFixed[T]` | `func WindowFixed[T any](n int) Gatherer[T, []T, []T]` | Partitions into non-overlapping chunks of `n` — the last chunk may be shorter. Java 24's `Gatherers.windowFixed`. Panics if `n < 1`. |
+| `WindowSliding[T]` | `func WindowSliding[T any](n int) Gatherer[T, []T, []T]` | Produces every overlapping window of size `n` — fewer than `n` elements at the very start are not emitted. Each window is a defensive copy. Panics if `n < 1`. |
+| `Scan[T, A]` | `func Scan[T, A any](initial A, fn func(A, T) A) Gatherer[T, A, A]` | Emits every intermediate accumulator value — a running `Reduce`, as opposed to `Reduce`'s single final value. Rust's `Iterator::scan`. |
+| `Fold[T, U]` | `func Fold[T, U any](initial U, fn func(U, T) U) Gatherer[T, U, U]` | `Reduce`'s non-terminal twin: the same final accumulator, emitted once at the end as a one-element stream instead of returned as a bare value — so it keeps flowing into `FlatMap`/`Map`. |
+| `MapWhile[T, U]` | `func MapWhile[T, U any](fn func(T) adt.Option[U]) Gatherer[T, struct{}, U]` | The `Gatherer` behind `Stream.MapWhile`/`Seq.MapWhile` — use directly with `.Gather()` when composing it with other gatherers in one pass. |
+| `ScanWhile[T, A, U]` | `func ScanWhile[T, A, U any](initial A, fn func(A, T) (A, adt.Option[U])) Gatherer[T, A, U]` | The `Gatherer` behind `Stream.ScanWhile`/`Seq.ScanWhile`. |
+
+```go
+// WindowFixed: batch a stream into fixed-size chunks
+batches := stream.Of(readings).Gather(stream.WindowFixed[Reading](10)).Collect()
+
+// WindowSliding: every 3-element moving window, e.g. for a running average
+windows := stream.Of(prices).Gather(stream.WindowSliding[float64](3)).Collect()
+
+// Scan: running total emitted at every step, not just the final one
+runningTotals := stream.Of(amounts).Gather(stream.Scan(0.0, func(acc, v float64) float64 {
+    return acc + v
+})).Collect()
+```
+
+---
+
+## 4. Numeric Pipelines
 
 When items are mapped to numeric types, `MapToNumber` exposes dedicated arithmetic aggregators.
 
@@ -176,7 +230,7 @@ avgSalary := stream.Of(employees).
 
 ---
 
-## 4. Concurrency Bridge (`async.Pipe`)
+## 5. Concurrency Bridge (`async.Pipe`)
 
 `stream` provides seamless bridges to `async.Pipe` for concurrent execution across goroutines.
 
@@ -198,7 +252,7 @@ results := stream.Of(imageURLs).
 
 ---
 
-## 5. Practical Real-World Scenarios
+## 6. Practical Real-World Scenarios
 
 ### Scenario A: Word Frequency Histogram & Top-K Ranking (`FlatMap`, `GroupBy`, `SortBy`, `Take`)
 
@@ -241,7 +295,7 @@ func TopKFrequentWords(documents []string, k int) []WordCount {
 }
 ```
 
-### Scenario B: Time-Series Pairwise Price Deltas (`Zip`, `Drop`)
+### Scenario B: Time-Series Pairwise Price Deltas (`Zip`, `Skip`)
 
 Computing adjacent element rate-of-change by zipping a stream with its own tail:
 

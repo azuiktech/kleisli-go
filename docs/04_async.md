@@ -35,12 +35,11 @@ import "github.com/azuiktech/kleisli-go/async"
 | `p.Map[U](fn)` | `func (p Pipe[T]) Map[U any](fn func(T) U) Pipe[U]` | Streams 1-to-1 transforms through a dedicated worker goroutine. |
 | `p.Parallel[U](n, fn)`| `func (p Pipe[T]) Parallel[U any](n int, fn func(T) U) Pipe[U]` | Spawns a pool of `n` worker goroutines. Output order is non-deterministic. |
 | `p.Buffer(size)` | `func (p Pipe[T]) Buffer(size int) Pipe[T]` | Inserts an asynchronous ring buffer of capacity `size`. |
-| `p.RateLimit(r, b)`| `func (p Pipe[T]) RateLimit(limit rate.Limit, burst int) Pipe[T]` | Token-bucket rate limiter via `golang.org/x/time/rate`. |
+| `p.RateLimit(ctx, lim)`| `func (p Pipe[T]) RateLimit(ctx context.Context, lim *rate.Limiter) Pipe[T]` | Paces items no faster than `lim` allows, via `golang.org/x/time/rate`'s own `*rate.Limiter`. `ctx` cancelling stops the pipe early. |
 | `p.Fork(n)` | `func (p Pipe[T]) Fork(n int) []Pipe[T]` | Splits pipe into `n` identical broadcast copies (unbuffered). Every branch must be read at roughly the same pace — a slow branch stalls the shared pump for all siblings. |
 | `Merge(pipes...)` | `func Merge[T any](pipes ...Pipe[T]) Pipe[T]` | Fan-in: merges multiple pipes into one unified output pipe. Only `pipes[0]`'s context governs cancellation of the merged output. |
-| `p.Window(size)` | `func (p Pipe[T]) Window(size int) Pipe[[]T]` | Groups stream elements into fixed-size chunks of `size`. |
-| `p.Batch(size, dur)`| `func (p Pipe[T]) Batch(size int, timeout time.Duration) Pipe[[]T]` | Emits batches when `size` elements accumulate or `timeout` elapses. |
-| `Enumerate(p)` | `func Enumerate[T any](p Pipe[T]) Pipe[adt.Indexed[T]]` | Tags each item with its position as it's produced. Call this right before a stage (typically `Parallel`) that may scramble arrival order. |
+| `Window(p, n)` | `func Window[T any](p Pipe[T], n int) Pipe[[]T]` | Batches items into fixed-size chunks of `n`, emitting each chunk as soon as it fills (trailing chunk may be shorter). Free function, not a method — same instantiation-cycle reason as `Enumerate`. Panics if `n < 1`. |
+| `Enumerate(p)` | `func Enumerate[T any](p Pipe[T]) Pipe[adt.Indexed[T]]` | Tags each item with its position as it's produced. Call this right after the source (typically right before `Parallel`) if a later stage may scramble arrival order. |
 | `Ordered(p)` | `func Ordered[T any](p Pipe[adt.Indexed[T]]) Pipe[T]` | Re-orders out-of-order `adt.Indexed[T]` elements — `Enumerate`'s pair, restoring sequential order after `Parallel`. Unbounded reorder buffer. |
 | `OrderedN(p, max)` | `func OrderedN[T any](p Pipe[adt.Indexed[T]], maxPending int) Pipe[T]` | Same as `Ordered`, but stops once more than `maxPending` items are waiting for a missing predecessor, instead of buffering without limit. |
 
@@ -51,15 +50,17 @@ import "github.com/azuiktech/kleisli-go/async"
 | `Collect()` | `func (p Pipe[T]) Collect() []T` | Drains pipe and materializes all elements into a slice. |
 | `Each(fn)` | `func (p Pipe[T]) Each(fn func(T))` | Drains pipe, invoking `fn` on each item. |
 | `Reduce[U](init, fn)`| `func (p Pipe[T]) Reduce[U any](initial U, fn func(acc U, item T) U) U` | Left-folds pipe items into an accumulated value. |
-| `Await()` | `func (p Pipe[T]) Await() T` | Reads the single (or first) item from pipe and closes. |
+| `Await()` | `func (p Pipe[T]) Await() adt.Option[T]` | Blocks for the single item a `Go`-built pipe produces. Returns `Some(value)`, or `None` if the pipe is already drained or empty. |
 
 ```go
 // Concurrent rate-limited URL processor
-results := async.FromContext(ctx, urls).
-    RateLimit(10, 1).              // Max 10 req/sec
-    Parallel(4, fetchHTTPContent). // 4 concurrent workers
-    Batch(50, 500*time.Millisecond).
-    Collect()
+limiter := rate.NewLimiter(rate.Limit(10), 1) // Max 10 req/sec
+
+fetched := async.FromContext(ctx, urls).
+    RateLimit(ctx, limiter).
+    Parallel(4, fetchHTTPContent) // 4 concurrent workers
+
+results := async.Window(fetched, 50).Collect()
 ```
 
 ---
@@ -92,6 +93,52 @@ go func() {
 res := fut.Await()
 ```
 
+### Receiver[T]
+
+`Receiver[T]` is the common handle every combinator below accepts as a source — anything that can hand back a `*Future[T]`. Implemented by `*Future[T]`, `*Promise[T]`, and `*Task[I, O]`.
+
+```go
+type Receiver[T any] interface {
+    Future() *Future[T]
+}
+```
+
+### Combinators
+
+Multi-source coordination built on `Future[T]`. Each combinator takes a `context.Context` plus one or more `Receiver[T]` sources and returns a single `*Future[...]`.
+
+| Function | Signature | Description |
+|---|---|---|
+| `AllOf[T](ctx, sources...)` | `func AllOf[T any](ctx context.Context, sources ...Receiver[T]) *Future[[]T]` | Resolves with all values, in input order, once every source succeeds. Rejects immediately with the first failure and cancels the rest. Empty `sources` resolves with `[]T{}`. |
+| `AllSettled[T](ctx, sources...)` | `func AllSettled[T any](ctx context.Context, sources ...Receiver[T]) *Future[[]adt.Result[T]]` | Resolves once every source has settled (OK or Err), preserving input order. Never itself rejects. Empty `sources` resolves with `[]adt.Result[T]{}`. |
+| `Race[T](ctx, sources...)` | `func Race[T any](ctx context.Context, sources ...Receiver[T]) *Future[T]` | Settles with the outcome (OK or Err) of whichever source completes first; cancels the rest. Rejects with `ErrEmptySources` if `sources` is empty. |
+| `AnyOf[T](ctx, sources...)` | `func AnyOf[T any](ctx context.Context, sources ...Receiver[T]) *Future[T]` | Resolves with the first source to succeed; other sources keep running on failure. Rejects with `ErrAllFailed` only once every source has failed, or `ErrEmptySources` if `sources` is empty. |
+| `Zip2[A, B](ctx, sa, sb)` | `func Zip2[A, B any](ctx context.Context, sa Receiver[A], sb Receiver[B]) *Future[adt.Pair[A, B]]` | Combines two heterogeneous sources into a `Future` of `adt.Pair`. Either failing fails the combined future fast and cancels the other. |
+| `Zip3[A, B, C](ctx, sa, sb, sc)` | `func Zip3[A, B, C any](ctx context.Context, sa Receiver[A], sb Receiver[B], sc Receiver[C]) *Future[adt.Triple[A, B, C]]` | Same as `Zip2` for three heterogeneous sources, yielding `adt.Triple`. |
+
+```go
+// Wait for every fetch to succeed, or bail out on the first error.
+allFut := async.AllOf(ctx, fut1, fut2, fut3)
+docs := allFut.Await().MustGet()
+
+// Combine two differently-typed futures into a pair.
+pairFut := async.Zip2(ctx, userFut, profileFut)
+user, profile := pairFut.Await().MustGet().Unpack()
+```
+
+`ErrEmptySources` and `ErrAllFailed` are the sentinel errors these combinators reject with, exported so callers can match them with `errors.Is`.
+
+### TaskGroup
+
+`TaskGroup` is the lower-level coordination primitive the combinators above are built on: it runs a batch of `Receiver[T]` sources under a shared cancellable context and lets a `policy` decide, result by result, when to stop early.
+
+| Method / Function | Signature | Description |
+|---|---|---|
+| `NewTaskGroup()` | `func NewTaskGroup() *TaskGroup` | Creates a `TaskGroup` derived from `context.Background()`. |
+| `TaskGroupWithContext(ctx)` | `func TaskGroupWithContext(ctx context.Context) *TaskGroup` | Creates a `TaskGroup` derived from `ctx`. |
+| `tg.Context()` | `func (tg *TaskGroup) Context() context.Context` | Returns the group's cancellation context. |
+| `tg.Run[T](sources, policy)` | `func (tg *TaskGroup) Run[T any](sources []Receiver[T], policy func(idx int, res adt.Result[T]) bool)` | Awaits every source under `tg`, calling `policy` with each result as it settles. Once `policy` returns `true`, the group cancels itself and every remaining pending source. Blocks until all sources are accounted for. |
+
 ---
 
 ## 3. Coroutines & Effect Engine
@@ -103,7 +150,7 @@ res := fut.Await()
 - **`Op[S, R]`**: A strongly typed suspension operation effect. Suspends with payload `S` and resumes with response `R`.
 - **`CallHandler`**: A handler that binds to an `Op[S, R]`.
 - **`Co`**: Coroutine execution scope passed to the task function. Embeds `context.Context`.
-- **`Task[I, O]`**: Driver handle for running, sending data, or awaiting task completion.
+- **`Task[I, O]`**: Driver handle for running, awaiting, or cancelling a packaged coroutine. Implements `Receiver[O]`.
 
 ### Defining Operations & Handlers
 
@@ -117,6 +164,14 @@ handler := QueryWeather.Handle(func(q WeatherQuery) adt.Result[string] {
 })
 ```
 
+| Method / Function | Signature | Description |
+|---|---|---|
+| `DefineOp[S, R](name)` | `func DefineOp[S, R any](name string) Op[S, R]` | Creates an operation mapping suspend payload `S` to resume type `R`. |
+| `op.Name()` | `func (o Op[S, R]) Name() string` | Returns the operation's identifier. |
+| `op.Handle(fn)` | `func (o Op[S, R]) Handle(fn func(s S) adt.Result[R]) CallHandler` | Creates a strongly-typed `CallHandler` for `op`. |
+
+A `CallHandler` dispatches on a `CallInvocation{OpName string; S any}` — the untyped `(op name, payload)` pair a `Context` passes through `Call`.
+
 ### Coroutine Scope (`Co`) Methods
 
 | Method | Signature | Description |
@@ -129,23 +184,41 @@ handler := QueryWeather.Handle(func(q WeatherQuery) adt.Result[string] {
 
 | Function / Method | Signature | Description |
 |---|---|---|
-| `Launch[I, O](cfg, input, fn)` | `func Launch[I, O any](cfg Config, input I, fn func(co *Co, in I) adt.Result[O]) *Task[I, O]` | Creates and immediately starts a coroutine task in the background. |
-| `PackagedTask[I, O](cfg, input, fn)`| `func PackagedTask[I, O any](cfg Config, input I, fn func(co *Co, in I) adt.Result[O]) *Task[I, O]`| Creates an unstarted task. Must call `t.Run()` to start. |
-| `t.Run()` | `func (t *Task[I, O]) Run()` | Starts an unstarted task (thread-safe, idempotent). |
-| `t.Send(val)` | `func (t *Task[I, O]) Send(val any)` | Sends input value to the suspended task. |
-| `t.Await()` | `func (t *Task[I, O]) Await() adt.Result[O]` | Blocks until task completes, returning `Result[O]`. |
-| `t.Cancel(cause)` | `func (t *Task[I, O]) Cancel(cause error) bool` | Cancels the task and its underlying context. |
-| `t.OnEmit(fn)` | `func (t *Task[I, O]) OnEmit(fn func(val any))` | Registers a callback for values emitted via `co.Emit`. |
-| `t.OnDone(fn)` | `func (t *Task[I, O]) OnDone(fn func(res adt.Result[O]))`| Registers a non-blocking callback upon task completion. |
+| `Launch[I, O](cfg, in, fn)` | `func Launch[I, O any](cfg Config, in I, fn func(co *Co, in I) adt.Result[O]) *Task[I, O]` | Packages the task and immediately runs it on a new goroutine. |
+| `PackagedTask[I, O](cfg, fn)`| `func PackagedTask[I, O any](cfg Config, fn func(co *Co, in I) adt.Result[O]) *Task[I, O]`| Packages the coroutine function without executing it. Call `t.Run(in)` to start. |
+| `t.Run(in)` | `func (t *Task[I, O]) Run(in I) adt.Result[O]` | Starts the task with input `in` and blocks for its result — safe to call synchronously, from a worker pool, or concurrently from multiple callers; the task runs once and everyone gets the settled result. Fails fast if the task's context was already cancelled before start. |
+| `t.Await()` | `func (t *Task[I, O]) Await() adt.Result[O]` | Blocks until the coroutine completes, returning `Result[O]`. |
+| `t.AwaitCtx(ctx)` | `func (t *Task[I, O]) AwaitCtx(ctx context.Context) adt.Result[O]` | Blocks until the coroutine completes or `ctx` expires. |
+| `t.Cancel(cause)` | `func (t *Task[I, O]) Cancel(cause error) bool` | Cancels the task's context. Returns whether this call performed the cancellation. |
+| `t.Context()` | `func (t *Task[I, O]) Context() context.Context` | Returns the coroutine's context. |
+| `t.Future()` | `func (t *Task[I, O]) Future() *Future[O]` | Returns the read-only `Future[O]` handle (satisfies `Receiver[O]`). |
 
 ### Execution Engines & Journaling
 
-- **`GoroutineContext`**: Standard in-memory engine running coroutines and handlers on goroutines.
+`Config.Context` plugs in the engine that actually runs `co.Call` and `co.Async` — every coroutine has one, defaulting to `GoroutineContext` when `Config.Context` is left nil.
+
+- **`Context`**: The engine interface itself — embeds `context.Context` and adds `Call(op string, s any) *Future[any]` / `Async(fn func(ctx context.Context) adt.Result[any]) *Future[any]`.
+- **`HandlerContext`**: Implemented by engines that support registering call handlers after construction: `SetHandlers(handlers []CallHandler)`.
+- **`GoroutineContext`**: In-memory `Context` running coroutines and handlers on plain goroutines — no replay, no persistence.
+- **`DurableContext`**: `Context` with deterministic step replay across workflow turns, backed by a `Journal`. Re-running the same coroutine replays already-completed steps from the journal instead of re-executing them, and can cap how many *new* steps run per turn via `SetMaxSteps`.
+- **`ErrSuspended`**: sentinel a `DurableContext` step rejects with when its per-turn step budget (`SetMaxSteps`) is exhausted before the step has a recorded result.
 - **`Journal`**: In-memory or persisted step history for deterministic replayable workflows.
   - `NewJournal() *Journal`
   - `(j *Journal) Append(val any)`
   - `(j *Journal) Get(idx int) (any, bool)`
   - `(j *Journal) Len() int`
+
+| Method / Function | Signature | Description |
+|---|---|---|
+| `NewGoroutineContext(ctx)` | `func NewGoroutineContext(ctx context.Context) *GoroutineContext` | Creates an in-memory coroutine `Context` bound to `ctx`. |
+| `(g *GoroutineContext) SetHandlers(handlers)` | `func (g *GoroutineContext) SetHandlers(handlers []CallHandler)` | Appends call handlers. |
+| `(g *GoroutineContext) Call(op, s)` | `func (g *GoroutineContext) Call(op string, s any) *Future[any]` | Dispatches `op`/`s` to a registered handler on a new goroutine. |
+| `(g *GoroutineContext) Async(fn)` | `func (g *GoroutineContext) Async(fn func(ctx context.Context) adt.Result[any]) *Future[any]` | Runs `fn` on a new goroutine. |
+| `NewDurableContext(ctx, journal)` | `func NewDurableContext(ctx context.Context, journal *Journal) *DurableContext` | Constructs a `DurableContext` bound to `ctx`, backed by `journal`. |
+| `(d *DurableContext) SetMaxSteps(n)` | `func (d *DurableContext) SetMaxSteps(n int)` | Caps the number of newly executed (non-replayed) steps this turn before suspending with `ErrSuspended`. |
+| `(d *DurableContext) SetHandlers(handlers)` | `func (d *DurableContext) SetHandlers(handlers []CallHandler)` | Appends call handlers. |
+| `(d *DurableContext) Call(op, s)` | `func (d *DurableContext) Call(op string, s any) *Future[any]` | Executes `op`/`s` against a handler, or replays its recorded result from the journal. |
+| `(d *DurableContext) Async(fn)` | `func (d *DurableContext) Async(fn func(ctx context.Context) adt.Result[any]) *Future[any]` | Executes `fn`, or replays its recorded result from the journal. |
 
 ```go
 cfg := async.Config{
@@ -210,7 +283,7 @@ clientWithCtx := async.InCtx(ctx, httpClient)
 
 ## 6. Practical Real-World Scenarios
 
-### Scenario A: Resilient Web Ingestion Pipeline (`Pipe[T]`, `RateLimit`, `Parallel`, `Batch`)
+### Scenario A: Resilient Web Ingestion Pipeline (`Pipe[T]`, `RateLimit`, `Parallel`, `Window`)
 
 Building a crawler pipeline that fetches web resources with token-bucket rate limiting, parallel workers, and batch database writing:
 
@@ -221,16 +294,18 @@ type Document struct {
 }
 
 func CrawlPipeline(ctx context.Context, targetURLs []string, dbSaver func([]Document)) {
-    async.FromContext(ctx, targetURLs).
-        RateLimit(100, 10).                    // Rate limit: 100 req/sec, burst 10
+    limiter := rate.NewLimiter(rate.Limit(100), 10) // 100 req/sec, burst 10
+
+    fetched := async.FromContext(ctx, targetURLs).
+        RateLimit(ctx, limiter).
         Parallel(16, func(url string) Document {
             // Concurrent worker fetch
             content := fetchHTML(url)
             return Document{URL: url, Body: content}
         }).
-        Buffer(256).                            // Decouple network from DB
-        Batch(50, 500*time.Millisecond).       // Batch up to 50 docs or flush every 500ms
-        Each(dbSaver)                          // Persist batch to DB
+        Buffer(256) // Decouple network from DB
+
+    async.Window(fetched, 50).Each(dbSaver) // Persist in batches of up to 50 docs
 }
 ```
 
